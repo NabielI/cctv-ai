@@ -474,7 +474,7 @@ def load_mediapipe():
 # ── YOLO Pose Setup
 HAS_POSE = True
 yolo_pose_model = None
-POSE_MODEL_NAME = "yolov8n-pose_openvino_model" if os.path.exists("yolov8n-pose_openvino_model") else "yolov8n-pose.pt"
+POSE_MODEL_NAME = ("yolov8n-pose_openvino_model" if os.path.exists("yolov8n-pose_openvino_model") else "yolov8n-pose.pt") if _use_openvino else "yolov8n-pose.pt"
 
 def load_yolo_pose_model():
     global yolo_pose_model, HAS_POSE, yolo_model
