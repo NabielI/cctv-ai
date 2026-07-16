@@ -1,6 +1,8 @@
-# analytics_engine.py
-# Modul Analitik Video & AI untuk NVR
-# Menyimpan model secara global dan menyediakan fungsi pemrosesan deteksi per mode
+# CRITICAL: Import torch and torchvision BEFORE cv2 to prevent OpenMP conflict/runtime library errors on ARM64!
+import torch
+import torchvision
+torch.set_num_threads(2)
+print(f"[AI-ENGINE] Set PyTorch CPU threads to {torch.get_num_threads()}", flush=True)
 
 import os
 os.environ["ULTRALYTICS_TELEMETRY"] = "false"
@@ -16,9 +18,6 @@ import threading
 import urllib.request
 import importlib
 import ctypes
-import torch
-torch.set_num_threads(2)
-print(f"[AI-ENGINE] Set PyTorch CPU threads to {torch.get_num_threads()}", flush=True)
 
 # ── MediaPipe Tasks API Windows compatibility monkeypatch for Python 3.12
 orig_cdll = ctypes.CDLL
