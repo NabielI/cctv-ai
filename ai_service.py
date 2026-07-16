@@ -1,6 +1,6 @@
-# ai_service.py
-# High-Performance NVR AI Analytics Service (FastAPI)
-# Port 5001 — Zero-lag MJPEG streaming with FastAPI and Uvicorn
+# CRITICAL: Import torch and torchvision BEFORE cv2 to prevent OpenMP conflict/runtime library errors on ARM64!
+import torch
+import torchvision
 
 import os
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|fflags;nobuffer|max_delay;100000"
