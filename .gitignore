@@ -1,0 +1,48 @@
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+
+# ── Node.js ──
+node_modules/
+
+# ── AI Models (besar, download ulang via script) ──
+*.pt
+*.onnx
+*.weights
+*_openvino_model/
+face_landmarker.task
+
+# ── Database & Logs ──
+*.db
+*.log
+*.log.*
+server-run.log
+server-run.err.log
+
+# ── go2rtc binaries (platform-specific, download ulang) ──
+go2rtc/go2rtc.exe
+go2rtc/go2rtc
+go2rtc/go2rtc.yaml
+
+# ── Environment variables (RAHASIA - jangan pernah di-commit!) ──
+.env
+.env.local
+.env.production
+
+# ── Upload folder (runtime data) ──
+uploads/
+
+# ── OS & IDE ──
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp
+*.swo
+
+# ── Scratch / temp files ──
+fix_raspi.sh
+kernel.errors.txt

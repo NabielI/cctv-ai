@@ -1,0 +1,14 @@
+{
+  "name": "camera-rtsp-monitor",
+  "version": "1.0.0",
+  "description": "Corporate RTSP monitoring dashboard using Node.js and go2rtc WebRTC",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^2.2.0"
+  },
+  "type": "commonjs"
+}

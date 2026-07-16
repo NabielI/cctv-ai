@@ -1,0 +1,3754 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Cam NVR — Enterprise Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+/* ── Reset & Root ──────────────────────────────────────────── */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #F7F7F8;
+  --surface: #FFFFFF;
+  --surface-2: #F7F7F8;
+  --border: #EBEBEB;
+  --border-strong: #D8D8DB;
+  --navy: #0F172A;
+  --navy-mid: #1E293B;
+  --navy-soft: #EBEBEB;
+  --text: #0F172A;
+  --text-2: #475569;
+  --text-3: #8A8A93;
+  --accent: #0057FF;
+  --accent-hover: #0047DB;
+  --accent-light: #F0F5FF;
+  --accent-ring: rgba(0, 87, 255, 0.08);
+  --green: #10B981;
+  --green-light: #F0FDF4;
+  --green-border: #DCFCE7;
+  --green-text: #15803D;
+  --red: #EF4444;
+  --red-light: #FEF2F2;
+  --red-border: #FEE2E2;
+  --red-text: #B91C1C;
+  --amber: #F59E0B;
+  --amber-light: #FFFBEB;
+  --amber-border: #FEF3C7;
+  --amber-text: #B45309;
+  --violet: #8B5CF6;
+  --violet-light: #F5F3FF;
+  --violet-border: #EDE9FE;
+  --violet-text: #6D28D9;
+  --sidebar-bg: #FFFFFF;
+  --sidebar-border: #EBEBEB;
+  --r4: 4px;
+  --r6: 6px;
+  --r8: 8px;
+  --r10: 10px;
+  --r12: 12px;
+  --r16: 16px;
+  --sh-xs: none;
+  --sh-sm: none;
+  --sh-md: none;
+  --sh-lg: none;
+  --sh-xl: none;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  display: flex;
+  overflow: hidden;
+}
+
+/* Force global JetBrains Mono overrides on dynamic/inline monospaced text */
+code, pre, .mono, .font-mono, 
+[style*="font-family:monospace"], 
+[style*="font-family: 'JetBrains Mono'"] {
+  font-family: 'JetBrains Mono', -apple-system-mono, Courier, monospace !important;
+}
+
+/* ── Sidebar Nav ────────────────────────────────────────────── */
+.sidebar {
+  width: 224px;
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  z-index: 60;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+.brand-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent-light);
+  border: 1px solid var(--accent-ring);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.brand-icon svg, .brand-icon i {
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
+}
+
+.brand-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -.01em;
+  line-height: 1.2;
+}
+
+.brand-sub {
+  font-size: 10px;
+  color: var(--text-3);
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.nav-section {
+  padding: 16px 12px 0;
+}
+
+.nav-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  padding: 0 8px;
+  margin-bottom: 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: all .15s;
+}
+
+.nav-item:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.nav-item.active {
+  color: var(--accent);
+  background: var(--accent-light);
+  font-weight: 600;
+}
+
+.nav-item svg, .nav-item i {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 16px;
+  border-top: 1px solid var(--sidebar-border);
+}
+
+.sidebar-clock {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.clock-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--text);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.clock-date {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+
+.active-count-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--green-light);
+  border: 1px solid var(--green-border);
+}
+
+.active-count-badge svg, .active-count-badge i {
+  width: 12px;
+  height: 12px;
+  color: var(--green);
+}
+
+.active-count-badge span {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--green-text);
+}
+
+/* ── Top Header ─────────────────────────────────────────────── */
+.main-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.topbar {
+  height: 64px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.topbar-header-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.topbar-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -.015em;
+  line-height: 1.2;
+}
+
+.topbar-sub {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+.btn:hover {
+  background: var(--bg);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.btn svg, .btn i {
+  width: 13px;
+  height: 13px;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* ── Scrollable Content Area ───────────────────────────────── */
+.content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.tab-pane {
+  display: none;
+}
+
+.tab-pane.active {
+  display: block;
+}
+
+/* ── Cards ──────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: visible;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+
+.card-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.card-body {
+  padding: 16px;
+  overflow: visible;
+  position: relative;
+}
+
+/* ── Status Badges ──────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  border: 1px solid transparent;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.badge-green {
+  background: var(--green-light);
+  color: var(--green-text);
+  border-color: var(--green-border);
+}
+
+.badge-green::before {
+  background: var(--green);
+  animation: pulse-dot 1.5s infinite;
+}
+
+.badge-red {
+  background: var(--red-light);
+  color: var(--red-text);
+  border-color: var(--red-border);
+}
+
+.badge-red::before {
+  background: var(--red);
+  animation: pulse-dot 1s infinite;
+}
+
+.badge-amber {
+  background: var(--amber-light);
+  color: var(--amber-text);
+  border-color: var(--amber-border);
+}
+
+.badge-amber::before {
+  background: var(--amber);
+}
+
+.badge-navy {
+  background: var(--bg);
+  color: var(--text-2);
+  border-color: var(--border);
+}
+
+.badge-navy::before {
+  background: var(--text-3);
+}
+
+.badge-blue {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent-ring);
+}
+
+.badge-blue::before {
+  background: var(--accent);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: .5; }
+  50% { opacity: 1; }
+}
+
+/* ── Dashboard Layout ───────────────────────────────────────── */
+.dash-layout {
+  display: grid;
+  grid-template-columns: 1fr 288px;
+  gap: 16px;
+  align-items: start;
+}
+
+@media(max-width: 1100px) {
+  .dash-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.player-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sidebar-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: calc(100vh - 96px);
+}
+
+/* ── Player Card ────────────────────────────────────────────── */
+.player-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.player-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.player-dot.online {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+
+.player-dot.offline {
+  background: var(--amber);
+  box-shadow: 0 0 5px var(--amber);
+}
+
+.cam-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cam-addr {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.player-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.grid-picker {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.gpick {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-2);
+  transition: all .15s;
+}
+
+.gpick:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.gpick.active {
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.gpick svg, .gpick i {
+  width: 13px;
+  height: 13px;
+}
+
+/* ── Video Feed ─────────────────────────────────────────────── */
+.feed-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #090F1D;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.feed-iframe, .feed-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  object-fit: contain;
+}
+
+.hud-tl {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.hud-tr {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.hud-bl {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  pointer-events: none;
+}
+
+.hud-br {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  pointer-events: none;
+}
+
+.hud-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rec-dot {
+  width: 5px;
+  height: 5px;
+  background: #ef4444;
+  border-radius: 50%;
+  animation: rec-blink 1s infinite alternate;
+}
+
+@keyframes rec-blink {
+  from { opacity: .3; }
+  to { opacity: 1; }
+}
+
+.feed-hover {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  opacity: 0;
+  transition: opacity .2s;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.feed-wrap:hover .feed-hover {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.feed-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all .15s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .25);
+}
+
+.feed-btn-snap {
+  background: rgba(255, 255, 255, .95);
+  color: var(--text);
+}
+
+.feed-btn-full {
+  background: var(--accent);
+  color: #fff;
+}
+
+.feed-btn svg, .feed-btn i {
+  width: 14px;
+  height: 14px;
+}
+
+.shutter {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.shutter.flash {
+  animation: shutter-anim .18s ease-out;
+}
+
+@keyframes shutter-anim {
+  0% { opacity: 0; }
+  40% { opacity: .9; }
+  100% { opacity: 0; }
+}
+
+.reload-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(9, 15, 29, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 15;
+  transition: opacity .15s;
+}
+
+.reload-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.reload-spinner {
+  width: 24px;
+  height: 24px;
+  color: #fff;
+  animation: spin .8s linear infinite;
+}
+
+.animate-spin {
+  animation: spin .8s linear infinite !important;
+}
+
+.reload-overlay span {
+  font-size: 12px;
+  color: rgba(255, 255, 255, .8);
+  font-weight: 500;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ── NVR Grid ───────────────────────────────────────────────── */
+.nvr-grid {
+  display: grid;
+  gap: 4px;
+  background: #090F1D;
+  border-radius: 12px;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.nvr-grid.g1 { grid-template-columns: 1fr; }
+.nvr-grid.g2 { grid-template-columns: 1fr 1fr; }
+.nvr-grid.g3 { grid-template-columns: repeat(3, 1fr); }
+.nvr-grid.g4 { grid-template-columns: repeat(4, 1fr); }
+
+.nvr-cell {
+  position: relative;
+  aspect-ratio: 16/9;
+  background: #050A14;
+  cursor: pointer;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.nvr-cell:hover {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.nvr-cell iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  pointer-events: none;
+}
+
+.nvr-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .75));
+  padding: 16px 10px 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.nvr-label-name {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.nvr-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.nvr-dot.online {
+  background: var(--green);
+  box-shadow: 0 0 4px var(--green);
+}
+
+.nvr-dot.offline {
+  background: var(--amber);
+}
+
+.nvr-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity .2s;
+  background: rgba(0, 87, 255, .15);
+}
+
+.nvr-cell:hover .nvr-hint {
+  opacity: 1;
+}
+
+.nvr-hint span {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  padding: 4px 12px;
+  border-radius: 9999px;
+}
+
+/* ── StatCards (Live Metrics) ───────────────────────────────── */
+.stat-card {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 16px;
+  overflow: hidden;
+  transition: all .2s;
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-card:hover {
+  background: var(--surface);
+}
+
+.stat-card-accent {
+  background: var(--surface);
+}
+
+/* Accent bar for Uptime Card */
+.stat-card:has(#metric-uptime) {
+  border-left: 3px solid var(--accent) !important;
+}
+
+.stat-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  order: 1;
+}
+
+.stat-card-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.stat-card-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+}
+
+.stat-card-accent .stat-card-icon {
+  color: var(--accent);
+}
+
+.stat-card-value {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text);
+  line-height: 1.1;
+  order: 2;
+}
+
+.stat-card-accent .stat-card-value {
+  color: var(--accent);
+}
+
+.stat-card-sub {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 6px;
+  order: 3;
+}
+
+/* ── Split Layout: Logs & Chart ────────────────────────────── */
+.grid-logs-chart {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 16px;
+}
+
+@media(max-width: 768px) {
+  .grid-logs-chart {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Sidebar Cards ──────────────────────────────────────────── */
+.form-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 6px;
+  display: block;
+}
+
+.form-select, .form-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  outline: none;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  transition: all .15s;
+}
+
+.form-select:focus, .form-input:focus {
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Camera dropdown */
+.cam-dropdown {
+  position: relative;
+}
+
+.cam-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  cursor: pointer;
+  user-select: none;
+  transition: all .15s;
+}
+
+.cam-dropdown-trigger:hover {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.cam-trigger-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--accent-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cam-trigger-icon svg, .cam-trigger-icon i {
+  width: 13px;
+  height: 13px;
+  color: var(--accent);
+}
+
+.cam-trigger-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.cam-trigger-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cam-trigger-sub {
+  font-size: 10px;
+  color: var(--text-3);
+  margin-top: 1px;
+}
+
+.cam-chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+  flex-shrink: 0;
+  transition: transform .2s;
+}
+
+.cam-dropdown.open .cam-chevron {
+  transform: rotate(180deg);
+}
+
+.cam-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  z-index: 200;
+  max-height: 400px;
+  overflow-y: auto;
+  display: none;
+}
+
+.cam-dropdown.open .cam-menu {
+  display: block;
+  animation: menu-drop .12s ease-out;
+}
+
+@keyframes menu-drop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cam-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  border-bottom: 1px solid var(--border);
+  transition: background .1s;
+}
+
+.cam-item:last-child {
+  border-bottom: none;
+}
+
+.cam-item:hover, .cam-item.active {
+  background: var(--accent-light);
+}
+
+.cam-item-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cam-item-icon.online {
+  background: var(--green-light);
+  color: var(--green-text);
+}
+
+.cam-item-icon.offline {
+  background: var(--amber-light);
+  color: var(--amber-text);
+}
+
+.cam-item-icon svg, .cam-item-icon i {
+  width: 12px;
+  height: 12px;
+}
+
+.cam-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cam-item.active .cam-item-name {
+  color: var(--accent);
+}
+
+.cam-item-type {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-top: 1px;
+}
+
+.cam-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: auto;
+  flex-shrink: 0;
+  display: none;
+}
+
+.cam-item.active .cam-active-dot {
+  display: block;
+}
+
+/* Detail rows */
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-key {
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.detail-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.detail-val.mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Quick actions grid */
+.qa-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.qa-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.qa-btn:hover {
+  background: var(--bg);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.qa-btn.full {
+  grid-column: 1/-1;
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent-ring);
+}
+
+.qa-btn.full:hover {
+  background: rgba(0, 87, 255, 0.12);
+}
+
+.qa-btn svg, .qa-btn i {
+  width: 13px;
+  height: 13px;
+}
+
+/* PTZ D-pad */
+.ptz-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.ptz-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 36px);
+  grid-template-rows: repeat(3, 36px);
+  gap: 6px;
+  width: auto;
+  height: auto;
+  background: transparent;
+  border-radius: 0;
+  border: none;
+}
+
+.ptz-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.ptz-btn:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent-ring);
+}
+
+.ptz-btn:active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ptz-btn svg, .ptz-btn i {
+  width: 16px;
+  height: 16px;
+}
+
+.ptz-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.ptz-center svg, .ptz-center i {
+  width: 14px;
+  height: 14px;
+}
+
+.ptz-zoom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ptz-zoom-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  color: var(--text-2);
+  transition: all .15s;
+}
+
+.ptz-zoom-btn:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent-ring);
+}
+
+.ptz-zoom-btn:active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ptz-zoom-btn svg, .ptz-zoom-btn i {
+  width: 15px;
+  height: 15px;
+}
+
+.ptz-zoom-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.05em;
+  padding: 0 8px;
+}
+
+/* AI toggle switch */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.toggle-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.sw {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.sw input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.sw-track {
+  position: absolute;
+  inset: 0;
+  background: #cbd5e1;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background .25s;
+}
+
+.sw input:checked ~ .sw-track {
+  background: var(--accent);
+}
+
+.sw-track::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
+  transition: .25s;
+}
+
+.sw input:checked ~ .sw-track::before {
+  transform: translateX(18px);
+}
+
+/* ── AI Console Box ─────────────────────────────────────────── */
+.ai-console {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.7;
+  min-height: 90px;
+  max-height: 170px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  display: none;
+}
+
+.ai-console::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ai-console::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ai-console::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+
+/* ── Logs Tab ───────────────────────────────────────────────── */
+.logs-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 16px;
+  height: calc(100vh - 96px);
+}
+
+@media(max-width: 960px) {
+  .logs-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.console-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.console-card-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.console-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -.01em;
+}
+
+.console-card-sub {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.console-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.log-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.log-search-icon {
+  position: absolute;
+  left: 10px;
+  width: 13px;
+  height: 13px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.log-search input {
+  padding: 8px 10px 8px 30px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  outline: none;
+  width: 180px;
+  font-family: 'Inter', sans-serif;
+  color: var(--text);
+  transition: all .15s;
+}
+
+.log-search input:focus {
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.log-filter-sel {
+  padding: 8px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  outline: none;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-2);
+  font-family: 'Inter', sans-serif;
+  transition: all .15s;
+}
+
+.log-filter-sel:focus {
+  border-color: var(--accent);
+}
+
+.btn-icon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  color: var(--text-2);
+  transition: all .15s;
+}
+
+.btn-icon:hover {
+  color: var(--red-text);
+  background: var(--red-light);
+  border-color: var(--red-border);
+}
+
+.btn-icon svg, .btn-icon i {
+  width: 14px;
+  height: 14px;
+}
+
+.terminal {
+  flex: 1;
+  background: var(--surface-2);
+  border-top: none;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 16px;
+  font-size: 12px;
+  overflow-y: auto;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
+.terminal::-webkit-scrollbar {
+  width: 5px;
+}
+
+.terminal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+.log-line {
+  margin-bottom: 2px;
+  word-break: break-all;
+}
+
+.log-ts {
+  color: var(--text-3);
+  margin-right: 6px;
+}
+
+.log-src {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 6px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  border: 1px solid transparent;
+}
+
+.log-src.system {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent-ring);
+}
+
+.log-src.go2rtc {
+  background: var(--green-light);
+  color: var(--green-text);
+  border-color: var(--green-border);
+}
+
+.log-src.go2rtc-err {
+  background: var(--red-light);
+  color: var(--red-text);
+  border-color: var(--red-border);
+}
+
+.log-src.watchdog {
+  background: var(--amber-light);
+  color: var(--amber-text);
+  border-color: var(--amber-border);
+}
+
+.log-src.ptz {
+  background: var(--violet-light);
+  color: var(--violet-text);
+  border-color: var(--violet-border);
+}
+
+.log-msg {
+  color: var(--text);
+}
+
+/* ── Diagnostics Panel ──────────────────────────────────────── */
+.diag-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  padding: 16px;
+  overflow: auto;
+}
+
+.diag-terminal {
+  flex: 1;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  min-height: 120px;
+}
+
+.diag-terminal::-webkit-scrollbar {
+  width: 4px;
+}
+
+.diag-terminal::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+
+/* ── Drowsiness Table ───────────────────────────────────────── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th {
+  padding: 12px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  text-align: left;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.data-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tr:hover td {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* ── Config Drawer ──────────────────────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .15);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 300;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s;
+}
+
+.overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: -580px;
+  width: 560px;
+  max-width: 100vw;
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  transition: right .25s ease;
+}
+
+.drawer.open {
+  right: 0;
+}
+
+.drawer-head {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -.01em;
+}
+
+.drawer-sub {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.drawer-close {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 20px;
+  line-height: 1;
+  transition: all .15s;
+}
+
+.drawer-close:hover {
+  background: var(--red-light);
+  color: var(--red-text);
+  border-color: var(--red-border);
+}
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.drawer-footer {
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.btn-save-main {
+  flex: 1;
+  padding: 10px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background .15s;
+}
+
+.btn-save-main:hover {
+  background: var(--accent-hover);
+}
+
+.btn-save-main:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.btn-cancel-main {
+  padding: 10px 18px;
+  background: var(--surface);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-cancel-main:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.save-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, .35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  display: none;
+}
+
+/* Camera rows in drawer */
+.cam-row {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: border-color .15s;
+}
+
+.cam-row:hover {
+  border-color: var(--border-strong);
+}
+
+.cam-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cam-row-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cam-row-label svg, .cam-row-label i {
+  width: 13px;
+  height: 13px;
+}
+
+.btn-rm {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--red-border);
+  background: var(--red-light);
+  color: var(--red-text);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.btn-rm:hover {
+  background: #fee2e2;
+}
+
+.btn-rm:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.btn-rm svg, .btn-rm i {
+  width: 11px;
+  height: 11px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.picker-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.ptab {
+  padding: 7px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  border-radius: 6px;
+  text-align: center;
+  transition: all .15s;
+}
+
+.ptab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, .5);
+}
+
+.ptab.active {
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.btn-add-cam {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+  margin-top: 4px;
+}
+
+.btn-add-cam:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+.btn-add-cam svg, .btn-add-cam i {
+  width: 15px;
+  height: 15px;
+}
+
+.drawer-tip {
+  background: var(--accent-light);
+  border: 1px solid var(--accent-ring);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--accent);
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.drawer-tip strong {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+/* drag-drop file zone */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 24px 12px;
+  text-align: center;
+  cursor: pointer;
+  background: var(--surface);
+  transition: all .15s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.drop-zone:hover, .drop-zone.over {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.drop-zone svg, .drop-zone i {
+  width: 28px;
+  height: 28px;
+  color: var(--text-3);
+}
+
+.drop-zone:hover svg, .drop-zone.over svg, .drop-zone:hover i, .drop-zone.over i {
+  color: var(--accent);
+}
+
+.drop-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.drop-sub {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.upload-prog {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.prog-bar {
+  flex: 1;
+  height: 5px;
+  background: var(--border);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.prog-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 9999px;
+  transition: width .15s;
+}
+
+.prog-pct {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 30px;
+  text-align: right;
+}
+
+/* Redesign of JS-created history list logs for light theme compatibility */
+#detection-history-list {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
+#detection-history-list span[style*="color: #e2e8f0"],
+#detection-history-list span[style*="color:#e2e8f0"] {
+  color: var(--text) !important;
+}
+#detection-history-list span[style*="color: #38bdf8"],
+#detection-history-list span[style*="color:#38bdf8"],
+#detection-history-list span[style*="color: rgb(56, 189, 248)"] {
+  color: var(--accent) !important;
+  background: var(--accent-light) !important;
+  border-color: var(--accent-ring) !important;
+}
+#detection-history-list span[style*="color: #10b981"],
+#detection-history-list span[style*="color:#10b981"] {
+  color: var(--green-text) !important;
+  background: var(--green-light) !important;
+  border-color: var(--green-border) !important;
+}
+#detection-history-list span[style*="color: #ef4444"],
+#detection-history-list span[style*="color:#ef4444"] {
+  color: var(--red-text) !important;
+  background: var(--red-light) !important;
+  border-color: var(--red-border) !important;
+}
+#detection-history-list span[style*="color: #f59e0b"],
+#detection-history-list span[style*="color:#f59e0b"] {
+  color: var(--amber-text) !important;
+  background: var(--amber-light) !important;
+  border-color: var(--amber-border) !important;
+}
+
+/* ── Toast ──────────────────────────────────────────────────── */
+.toasts {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  padding: 10px 16px;
+  border-radius: 8px;
+  color: var(--text);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  transform: translateY(40px);
+  opacity: 0;
+  animation: toast-in .25s forwards;
+  min-width: 280px;
+}
+
+.toast svg, .toast i {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.toast.success {
+  border-left-color: var(--green);
+}
+
+.toast.success svg, .toast.success i {
+  color: var(--green);
+}
+
+.toast.error {
+  border-left-color: var(--red);
+}
+
+.toast.error svg, .toast.error i {
+  color: var(--red);
+}
+
+@keyframes toast-in {
+  to { transform: translateY(0); opacity: 1; }
+}
+</style>
+
+</head>
+<body>
+
+<!-- ── Sidebar Nav ──────────────────────────────────────────── -->
+<nav class="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-icon"><i data-lucide="shield"></i></div>
+    <div>
+      <div class="brand-name">Smart Cam NVR</div>
+      <div class="brand-sub">Enterprise Monitor</div>
+    </div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Navigasi</div>
+    <button class="nav-item active" id="nav-dashboard" onclick="switchTab('dashboard')">
+      <i data-lucide="monitor"></i> Dashboard
+    </button>
+    <button class="nav-item" id="nav-logs" onclick="switchTab('logs')">
+      <i data-lucide="terminal"></i> System Logs
+    </button>
+    <button class="nav-item" id="nav-drowsiness" onclick="switchTab('drowsiness')">
+      <i data-lucide="eye"></i> Riwayat Kantuk
+    </button>
+  </div>
+  <div class="sidebar-footer">
+    <div class="sidebar-clock">
+      <div class="clock-time" id="clock-time">00:00:00</div>
+      <div class="clock-date" id="clock-date">—</div>
+    </div>
+    <div class="active-count-badge">
+      <i data-lucide="activity"></i>
+      <span id="active-count-txt">0 kamera aktif</span>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Main Wrapper ──────────────────────────────────────────── -->
+<div class="main-wrap">
+  <!-- Top Bar -->
+  <div class="topbar">
+    <div class="topbar-header-info">
+      <span class="topbar-title" id="topbar-title">NVR Monitor Dashboard</span>
+      <span class="topbar-sub" id="topbar-sub">Live surveillance dashboard</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn" id="open-config-btn"><i data-lucide="settings"></i> Pengaturan</button>
+    </div>
+  </div>
+
+  <!-- Content Scroll Area -->
+  <div class="content-area">
+
+    <!-- ── Dashboard Tab ─────────────────────────────────────── -->
+    <div class="tab-pane active" id="tab-dashboard">
+      <div class="dash-layout" id="dash-layout">
+
+        <!-- Left: Player -->
+        <div class="player-stack">
+          <div class="card">
+            <div class="card-header">
+              <div class="player-header" id="player-header">
+                <span class="player-dot offline" id="player-dot"></span>
+                <span class="cam-name" id="player-cam-name">Memuat...</span>
+                <span class="cam-addr" id="player-cam-addr">—</span>
+              </div>
+              <div class="player-actions">
+                <div class="grid-picker">
+                  <button class="gpick active" id="gp1" onclick="setGrid(1)" title="Single"><i data-lucide="square"></i></button>
+                  <button class="gpick" id="gp2" onclick="setGrid(2)" title="2×2"><i data-lucide="layout-grid"></i></button>
+                  <button class="gpick" id="gp3" onclick="setGrid(3)" title="3×3">
+                    <svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="4" rx=".5"/><rect x="6" y="1" width="4" height="4" rx=".5"/><rect x="11" y="1" width="4" height="4" rx=".5"/><rect x="1" y="6" width="4" height="4" rx=".5"/><rect x="6" y="6" width="4" height="4" rx=".5"/><rect x="11" y="6" width="4" height="4" rx=".5"/><rect x="1" y="11" width="4" height="4" rx=".5"/><rect x="6" y="11" width="4" height="4" rx=".5"/><rect x="11" y="11" width="4" height="4" rx=".5"/></svg>
+                  </button>
+                  <button class="gpick" id="gp4" onclick="setGrid(4)" title="4×4">
+                    <svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="3" height="3" rx=".5"/><rect x="5.5" y="1" width="3" height="3" rx=".5"/><rect x="10" y="1" width="3" height="3" rx=".5"/><rect x="1" y="5.5" width="3" height="3" rx=".5"/><rect x="5.5" y="5.5" width="3" height="3" rx=".5"/><rect x="10" y="5.5" width="3" height="3" rx=".5"/><rect x="1" y="10" width="3" height="3" rx=".5"/><rect x="5.5" y="10" width="3" height="3" rx=".5"/><rect x="10" y="10" width="3" height="3" rx=".5"/></svg>
+                  </button>
+                </div>
+                <button class="btn" id="reload-btn" onclick="reloadStream()">
+                  <i data-lucide="refresh-cw" id="reload-icon"></i> Reload
+                </button>
+              </div>
+            </div>
+
+            <!-- Single view -->
+            <div id="single-view">
+              <div class="feed-wrap" id="feed-wrap">
+                <div class="shutter" id="shutter"></div>
+                <iframe id="feed-iframe" src="" class="feed-iframe" allowfullscreen allow="autoplay"></iframe>
+                <img id="feed-img" src="" class="feed-img" style="display:none;background:#000;">
+                <div class="hud-tr">
+                  <span class="hud-chip"><span class="rec-dot"></span>REC</span>
+                  <span class="hud-chip" id="hud-cam-id">CAM-01</span>
+                </div>
+                <div class="hud-bl"><span class="hud-chip" id="hud-quality" style="color:#34d399;">—</span></div>
+                <div class="hud-br"><span class="hud-chip" id="hud-bitrate" style="color:rgba(255,255,255,.5);"></span></div>
+                <div class="feed-hover">
+                  <button class="feed-btn feed-btn-snap" onclick="takeSnapshot()"><i data-lucide="camera" class="feed-btn"></i> Snapshot</button>
+                  <button class="feed-btn feed-btn-full" onclick="goFullscreen()"><i data-lucide="maximize-2" class="feed-btn"></i> Layar Penuh</button>
+                </div>
+                <div class="reload-overlay" id="reload-overlay">
+                  <i data-lucide="refresh-cw" class="reload-spinner"></i>
+                  <span>Menghubungkan ulang...</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Grid view -->
+            <div id="grid-view" style="display:none;">
+              <div class="nvr-grid g2" id="nvr-grid"></div>
+            </div>
+          </div>
+
+          <!-- Dashboard Stats & Logs Card -->
+          <div class="card" style="margin-top: 12px;">
+            <div class="card-header">
+              <span class="card-title"><i data-lucide="bar-chart-2" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"></i> AI Live Metrics & Activity Log</span>
+            </div>
+            <div class="card-body" style="padding: 16px; display: flex; flex-direction: column; gap: 16px;">
+              <!-- Stats Row -->
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+                <!-- Stat 1 -->
+                <div class="stat-card stat-card-accent">
+                  <div class="stat-card-header">
+                    <span class="stat-card-label">Orang Hari Ini</span>
+                    <i data-lucide="users" class="stat-card-icon"></i>
+                  </div>
+                  <div class="stat-card-value" id="metric-people-count">0</div>
+                  <div class="stat-card-sub">total terdeteksi unik</div>
+                </div>
+                <!-- Stat 2 -->
+                <div class="stat-card">
+                  <div class="stat-card-header">
+                    <span class="stat-card-label">FPS Aliran</span>
+                    <i data-lucide="activity" class="stat-card-icon"></i>
+                  </div>
+                  <div class="stat-card-value" id="metric-fps">0.0</div>
+                  <div class="stat-card-sub">aktual stream rate</div>
+                </div>
+                <!-- Stat 3 -->
+                <div class="stat-card">
+                  <div class="stat-card-header">
+                    <span class="stat-card-label">Uptime Kamera</span>
+                    <i data-lucide="clock" class="stat-card-icon"></i>
+                  </div>
+                  <div class="stat-card-value" id="metric-uptime">00:00:00</div>
+                  <div class="stat-card-sub">sejak koneksi terakhir</div>
+                </div>
+              </div>
+
+              <!-- Main Split: Live Log (Left) & Chart (Right) -->
+              <div class="grid-logs-chart">
+                <!-- Live Logs -->
+                <div>
+                  <div style="font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="list-todo" style="width: 14px; height: 14px;"></i> Riwayat Deteksi Terbaru
+                  </div>
+                  <div id="detection-history-list" style="background: var(--navy); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 12px; height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #cbd5e1;">
+                    <div style="color: var(--text-3); text-align: center; margin-top: 50px;">Menunggu aktivitas deteksi...</div>
+                  </div>
+                </div>
+
+                <!-- SVG Activity Chart -->
+                <div>
+                  <div style="font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="trending-up" style="width: 14px; height: 14px;"></i> Grafik Aktivitas Jam
+                  </div>
+                  <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; height: 160px; display: flex; flex-direction: column; justify-content: space-between;">
+                    <div id="activity-chart-svg-container" style="flex: 1; display: flex; align-items: flex-end; gap: 6px; padding-top: 10px;">
+                      <!-- Chart bars will be inserted dynamically by JS -->
+                    </div>
+                    <div id="activity-chart-hours" style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-3); margin-top: 6px; font-family: 'JetBrains Mono', monospace;">
+                      <span>--:--</span>
+                      <span>--:--</span>
+                      <span>--:--</span>
+                      <span>--:--</span>
+                      <span>--:--</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Sidebar panels -->
+        <div class="sidebar-stack" id="sidebar-stack">
+
+          <!-- Camera Selector -->
+          <div class="card">
+            <div class="card-header"><span class="card-title">Pilih Kamera</span></div>
+            <div class="card-body" style="padding:12px;">
+              <div class="cam-dropdown" id="cam-dd">
+                <div class="cam-dropdown-trigger" id="cam-dd-trigger">
+                  <div class="cam-trigger-icon"><i data-lucide="video"></i></div>
+                  <div class="cam-trigger-text">
+                    <div class="cam-trigger-name" id="cam-dd-name">Memuat Kamera...</div>
+                    <div class="cam-trigger-sub" id="cam-dd-sub">—</div>
+                  </div>
+                  <i data-lucide="chevron-down" class="cam-chevron"></i>
+                </div>
+                <div class="cam-menu" id="cam-dd-menu"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Analytics Card -->
+          <div class="card" id="ai-card">
+            <div class="card-header">
+              <span class="card-title">Analitik AI</span>
+              <span class="badge badge-navy" id="ai-engine-badge">OFF</span>
+            </div>
+            <div class="card-body" style="display:flex;flex-direction:column;gap:10px;">
+              <div class="form-group">
+                <label class="form-label">Mode Analitik</label>
+                <select class="form-select" id="ai-mode-select" onchange="changeAIMode(this.value)">
+                  <option value="none">Matikan Analitik AI</option>
+                  <option value="face">Deteksi Wajah (Face Recognition)</option>
+                  <option value="attribute">Atribut Pakaian &amp; Objek Umum</option>
+                  <option value="sop">Kepatuhan SOP (Timer ROI)</option>
+                  <option value="contraflow">Deteksi Arah (Contraflow)</option>
+                  <option value="drowsiness">Deteksi Kantuk (EAR)</option>
+                  <option value="pose">Pose Estimation &amp; Human Tracking</option>
+                </select>
+                <div id="ai-limit-warning" style="display:none; color:#f87171; font-size:11px; margin-top:6px; font-weight:500;"></div>
+              </div>
+              <div style="border-top:1px dashed var(--border);padding-top:10px;">
+                <div class="toggle-row">
+                  <span class="toggle-label">Tampilkan Video Teranalisis</span>
+                  <label class="sw"><input type="checkbox" id="ai-stream-toggle" onchange="toggleAIStream(this.checked)"><span class="sw-track"></span></label>
+                </div>
+              </div>
+              <div class="ai-console" id="ai-console">Menunggu data analitik...</div>
+            </div>
+          </div>
+
+          <!-- PTZ Card -->
+          <div class="card" id="ptz-card">
+            <div class="card-header">
+              <span class="card-title">Kontrol PTZ (ONVIF)</span>
+              <span class="badge badge-green" id="ptz-badge">SIAP</span>
+            </div>
+            <div class="card-body">
+              <div class="ptz-wrap">
+                <div class="ptz-dpad">
+                  <div></div>
+                  <button class="ptz-btn" onmousedown="startPTZ('up')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><i data-lucide="chevron-up"></i></button>
+                  <div></div>
+                  <button class="ptz-btn" onmousedown="startPTZ('left')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><i data-lucide="chevron-left"></i></button>
+                  <div class="ptz-center"><i data-lucide="move"></i></div>
+                  <button class="ptz-btn" onmousedown="startPTZ('right')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><i data-lucide="chevron-right"></i></button>
+                  <div></div>
+                  <button class="ptz-btn" onmousedown="startPTZ('down')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><i data-lucide="chevron-down"></i></button>
+                  <div></div>
+                </div>
+                <div class="ptz-zoom">
+                  <button class="ptz-zoom-btn" onmousedown="startPTZ('zoom_out')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><span class="font-mono" style="font-size:13px; font-weight:600;">−</span></button>
+                  <span class="ptz-zoom-label">ZOOM</span>
+                  <button class="ptz-zoom-btn" onmousedown="startPTZ('zoom_in')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><span class="font-mono" style="font-size:13px; font-weight:600;">+</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stream Detail Card -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Detail Aliran</span>
+              <span class="badge badge-amber" id="detail-status-badge">OFFLINE</span>
+            </div>
+            <div class="card-body" style="padding:0 16px;">
+              <div class="detail-row"><span class="detail-key">Alamat IP</span><span class="detail-val mono" id="d-ip">—</span></div>
+              <div class="detail-row"><span class="detail-key">Port</span><span class="detail-val mono" id="d-port">—</span></div>
+              <div class="detail-row"><span class="detail-key">Codec</span><span class="detail-val" id="d-quality">—</span></div>
+              <div class="detail-row"><span class="detail-key">Frame Rate</span><span class="detail-val" id="d-fps">—</span></div>
+              <div class="detail-row"><span class="detail-key">Bitrate</span><span class="detail-val mono" id="d-bitrate">—</span></div>
+              <div class="detail-row"><span class="detail-key">Uptime</span><span class="detail-val" id="d-uptime">—</span></div>
+            </div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="card">
+            <div class="card-header"><span class="card-title">Aksi Cepat</span></div>
+            <div class="card-body" style="padding:12px;">
+              <div class="qa-grid">
+                <button class="qa-btn" onclick="takeSnapshot()"><i data-lucide="camera"></i> Snapshot</button>
+                <button class="qa-btn" onclick="reloadStream()"><i data-lucide="refresh-cw" id="qa-reload-icon"></i> Reload</button>
+                <button class="qa-btn full" onclick="goFullscreen()"><i data-lucide="maximize-2"></i> Layar Penuh</button>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /sidebar-stack -->
+      </div><!-- /dash-layout -->
+    </div><!-- /tab-dashboard -->
+
+    <!-- ── Logs Tab ──────────────────────────────────────────── -->
+    <div class="tab-pane" id="tab-logs">
+      <div class="logs-layout">
+        <div class="console-card">
+          <div class="console-card-header">
+            <div>
+              <div class="console-card-title">Log Explorer</div>
+              <div class="console-card-sub">Aktivitas server, go2rtc, watchdog, dan PTZ secara real-time</div>
+            </div>
+            <div class="console-controls">
+              <div class="log-search">
+                <i data-lucide="search" class="log-search-icon"></i>
+                <input type="text" id="log-search" oninput="filterLogs()" placeholder="Cari log...">
+              </div>
+              <select class="log-filter-sel" id="log-filter" onchange="filterLogs()">
+                <option value="all">Semua Sumber</option>
+                <option value="system">System</option>
+                <option value="go2rtc">go2rtc</option>
+                <option value="watchdog">Watchdog</option>
+                <option value="ptz">PTZ</option>
+              </select>
+              <button class="btn-icon" onclick="clearLogsUI()" title="Bersihkan tampilan"><i data-lucide="trash-2"></i></button>
+            </div>
+          </div>
+          <div class="terminal" id="terminal-box"></div>
+        </div>
+        <div class="console-card">
+          <div class="console-card-header">
+            <div>
+              <div class="console-card-title">Diagnostik Interaktif</div>
+              <div class="console-card-sub">Uji konektivitas langsung ke kamera</div>
+            </div>
+          </div>
+          <div class="diag-form">
+            <div class="form-group"><label class="form-label">Kamera Target</label>
+              <select class="form-select" id="diag-cam-sel"></select></div>
+            <div class="form-group"><label class="form-label">Alat Diagnostik</label>
+              <select class="form-select" id="diag-action-sel">
+                <option value="ping">Ping (Uji Keterjangkauan IP)</option>
+                <option value="onvif">ONVIF Probe (Info Pabrikan/Model)</option>
+              </select></div>
+            <button class="btn btn-primary" id="btn-run-diag" onclick="runDiag()">
+              <i data-lucide="play"></i> <span id="diag-label">Jalankan Diagnostik</span>
+            </button>
+            <label class="form-label" style="margin-top:4px;">Output:</label>
+            <div class="diag-terminal" id="diag-terminal">Menunggu perintah dijalankan...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Drowsiness Tab ────────────────────────────────────── -->
+    <div class="tab-pane" id="tab-drowsiness">
+      <div class="console-card" style="height:calc(100vh - 96px);">
+        <div class="console-card-header">
+          <div>
+            <div class="console-card-title">Riwayat Deteksi Kantuk (EAR)</div>
+            <div class="console-card-sub">Kejadian saat nilai Eye Aspect Ratio operator di bawah ambang batas</div>
+          </div>
+          <button class="btn" onclick="fetchDrowsiness()"><i data-lucide="refresh-cw"></i> Segarkan</button>
+        </div>
+        <div style="overflow-y:auto;flex:1;">
+          <table class="data-table">
+            <thead><tr><th>#</th><th>Kamera</th><th>Waktu Kejadian</th><th>EAR</th><th>Status</th></tr></thead>
+            <tbody id="drowsiness-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content-area -->
+</div><!-- /main-wrap -->
+
+<!-- ── Config Drawer ──────────────────────────────────────────── -->
+<div class="overlay" id="overlay"></div>
+<div class="drawer" id="config-drawer">
+  <div class="drawer-head">
+    <div>
+      <div class="drawer-title">Manajemen Kamera</div>
+      <div class="drawer-sub">Tambah, edit, atau hapus sumber CCTV &amp; ONVIF</div>
+    </div>
+    <button class="drawer-close" id="close-drawer">&times;</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+  <div class="drawer-footer">
+    <button class="btn-cancel-main" id="cancel-drawer">Batal</button>
+    <button class="btn-save-main" id="save-drawer">
+      <span class="save-spinner" id="save-spinner"></span>
+      <i data-lucide="save" id="save-icon"></i>
+      <span id="save-label">Simpan &amp; Terapkan</span>
+    </button>
+  </div>
+</div>
+
+<!-- ── Toast Container ───────────────────────────────────────── -->
+<div class="toasts" id="toasts"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+let cameras = [];
+let activeCamId = null;   // BUG 2 FIX: restored from localStorage
+let connStatus  = {};
+let streamData  = {};
+let uptimeData  = {};
+let gridCols    = 1;
+let activeTab   = 'dashboard';
+let aiMode      = 'none';
+let showAI      = false;
+let aiInterval  = null;
+let logsInterval = null;
+let draftCams   = [];
+let cachedLogs  = [];
+const prevBytes = {}, prevBytesTs = {};
+
+const LS_CAM_KEY = 'nvr_active_cam_id';  // localStorage key
+
+// AI Dashboard metrics state variables
+let uniquePeopleToday = new Set();
+let hourlyStats       = [0, 0, 0, 0, 0];
+let lastHourRecorded  = -1;
+let lastDetectionStates = {
+  peopleCount: 0,
+  sopStatus: 'AMAN',
+  contraflowStatus: 'AMAN',
+  drowsinessStatus: 'Normal',
+  faceName: 'None'
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  CLOCK
+// ═══════════════════════════════════════════════════════════════
+function tickClock(){
+  const n = new Date();
+  document.getElementById('clock-time').textContent =
+    [n.getHours(),n.getMinutes(),n.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
+  document.getElementById('clock-date').textContent =
+    n.toLocaleDateString('id-ID',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+}
+setInterval(tickClock,1000); tickClock();
+
+// ═══════════════════════════════════════════════════════════════
+//  TOAST
+// ═══════════════════════════════════════════════════════════════
+function toast(msg,type='info'){
+  const el=document.createElement('div');
+  el.className=`toast ${type}`;
+  const icon = type==='success'?'check-circle':type==='error'?'alert-triangle':'info';
+  el.innerHTML=`<i data-lucide="${icon}"></i><span>${msg}</span>`;
+  document.getElementById('toasts').appendChild(el);
+  lucide.createIcons();
+  setTimeout(()=>{el.style.animation='toast-in .25s reverse forwards';setTimeout(()=>el.remove(),260);},3500);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TAB SWITCH
+// ═══════════════════════════════════════════════════════════════
+const TAB_TITLES={dashboard:'NVR Monitor Dashboard',logs:'System Diagnostics Console',drowsiness:'Riwayat Deteksi Kantuk (EAR)'};
+const TAB_SUBS={dashboard:'Live surveillance dashboard',logs:'Real-time log explorer & diagnostic console',drowsiness:'Eye Aspect Ratio operator tracking history'};
+function switchTab(name){
+  activeTab=name;
+  document.querySelectorAll('.tab-pane').forEach(el=>el.classList.remove('active'));
+  document.getElementById(`tab-${name}`).classList.add('active');
+  ['dashboard','logs','drowsiness'].forEach(t=>{
+    document.getElementById(`nav-${t}`).classList.toggle('active',t===name);
+  });
+  document.getElementById('topbar-title').textContent=TAB_TITLES[name]||name;
+  document.getElementById('topbar-sub').textContent=TAB_SUBS[name]||'';
+  if(logsInterval){clearInterval(logsInterval);logsInterval=null;}
+  if(name==='logs'){
+    populateDiagDd();fetchLogs();
+    logsInterval=setInterval(fetchLogs,2500);
+  }else if(name==='drowsiness'){fetchDrowsiness();}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CONFIG FETCH  — BUG 2 FIX: restore camera from localStorage
+// ═══════════════════════════════════════════════════════════════
+async function fetchConfig(){
+  try{
+    console.log('[fetchConfig] Fetching camera list from /api/config...');
+    const r=await fetch('/api/config');
+    const d=await r.json();
+    console.log('[fetchConfig] Response:', d);
+    cameras=d.cameras||[];
+    console.log('[fetchConfig] Cameras loaded:', cameras.length, cameras);
+    buildCamMenu();
+
+    // BUG 2: try to restore previously viewed camera from localStorage
+    const saved=localStorage.getItem(LS_CAM_KEY);
+    const savedId=saved!==null?parseInt(saved):null;
+    const savedExists=savedId!==null && cameras.some(c=>c.id===savedId);
+    
+    console.log('[fetchConfig] localStorage camera:', savedId, 'exists:', savedExists);
+
+    if(savedExists){
+      activeCamId=savedId;
+    } else if(cameras.length>0){
+      activeCamId=cameras[0].id;
+    }
+
+    document.getElementById('active-count-txt').textContent=`${cameras.length} kamera aktif`;
+
+    if(cameras.length>0){
+      if(gridCols===1) switchCamera(activeCamId);
+      else renderGrid(gridCols);
+    } else {
+      console.warn('[fetchConfig] No cameras available!');
+      document.getElementById('cam-dd-name').textContent='Tidak ada kamera';
+      document.getElementById('cam-dd-sub').textContent='Tambahkan kamera di Pengaturan';
+    }
+  }catch(e){
+    console.error('[fetchConfig] Error:', e);
+    toast('Gagal memuat konfigurasi kamera','error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SWITCH CAMERA  — BUG 2 FIX: save to localStorage on switch
+// ═══════════════════════════════════════════════════════════════
+function switchCamera(camId){
+  activeCamId=parseInt(camId);
+  // Persist selected camera
+  localStorage.setItem(LS_CAM_KEY, String(activeCamId));
+
+  // Reset metrics tracking states on switch
+  uniquePeopleToday.clear();
+  hourlyStats = [0, 0, 0, 0, 0];
+  lastHourRecorded = -1;
+  lastDetectionStates = {
+    peopleCount: 0,
+    sopStatus: 'AMAN',
+    contraflowStatus: 'AMAN',
+    drowsinessStatus: 'Normal',
+    faceName: 'None'
+  };
+  const list = document.getElementById('detection-history-list');
+  if (list) {
+    list.innerHTML = '<div style="color: var(--text-3); text-align: center; margin-top: 50px;">Menunggu aktivitas deteksi...</div>';
+  }
+  const peopleCountEl = document.getElementById('metric-people-count');
+  if (peopleCountEl) peopleCountEl.textContent = '0';
+  const fpsEl = document.getElementById('metric-fps');
+  if (fpsEl) fpsEl.textContent = '0.0';
+
+  const cam=cameras.find(c=>c.id===activeCamId);
+  if(!cam) return;
+  const lbl=`CAM-${String(activeCamId+1).padStart(2,'0')}`;
+
+  // Update dropdown highlight
+  document.querySelectorAll('.cam-item').forEach(el=>{
+    const active=parseInt(el.dataset.camId)===activeCamId;
+    el.classList.toggle('active',active);
+  });
+  document.getElementById('cam-dd-name').textContent=cam.name;
+  document.getElementById('cam-dd-sub').textContent=lbl;
+  document.getElementById('cam-dd').classList.remove('open');
+
+  // Player header
+  document.getElementById('player-cam-name').textContent=cam.name;
+  const ipMatch=cam.url.match(/@([^:/]+)/);
+  const hostIp=ipMatch?ipMatch[1]:(cam.url.startsWith('rtsp://')?cam.url.split('/')[2].split(':')[0]:'online');
+  const portMatch=cam.url.match(/:(\d+)\//);
+  const hostPort=portMatch?portMatch[1]:'5543';
+  document.getElementById('player-cam-addr').textContent=`${hostIp}:${hostPort}`;
+  document.getElementById('hud-cam-id').textContent=lbl;
+  document.getElementById('d-ip').textContent=hostIp;
+  document.getElementById('d-port').textContent=hostPort;
+  document.getElementById('d-quality').textContent='Memuat...';
+  document.getElementById('d-fps').textContent='Memuat...';
+  document.getElementById('d-bitrate').textContent='Memuat...';
+  document.getElementById('d-uptime').textContent='—';
+
+  // PTZ card visibility
+  const ptzCard=document.getElementById('ptz-card');
+  if(ptzCard) ptzCard.style.display=cam.onvifPort?'block':'none';
+
+  // Load stream — do NOT remount element, just change src
+  const go2Host=`http://${location.hostname}:1984`;
+  const feedImg=document.getElementById('feed-img');
+  const feedIframe=document.getElementById('feed-iframe');
+  if(showAI){
+    feedIframe.style.display='none';
+    feedIframe.src='';
+    feedImg.style.display='block';
+    // Small delay so browser clears buffer before new src
+    setTimeout(()=>{
+      feedImg.src=`http://${location.hostname}:5001/stream?cam_id=${activeCamId}&_=${Date.now()}`;
+    },80);
+  }else{
+    feedImg.style.display='none';
+    feedImg.src='';
+    feedIframe.style.display='block';
+    feedIframe.src=`${go2Host}/stream.html?src=camera_${activeCamId}&mode=webrtc&buffer=0&media=video,audio`;
+  }
+
+  updatePlayerStatus();
+  syncAIState(activeCamId);
+  fetchStreamDetail();
+}
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CAMERA DROPDOWN BUILD — BUG FIX: actually show options
+// ═══════════════════════════════════════════════════════════════
+function buildCamMenu(){
+  const menu=document.getElementById('cam-dd-menu');
+  if(!menu){console.error('[BUG] cam-dd-menu element not found');return;}
+  menu.innerHTML='';
+  console.log('[buildCamMenu] cameras:', cameras.length, cameras);
+  
+  if(cameras.length===0){
+    menu.innerHTML='<div style="padding:12px;text-align:center;color:var(--text-3);font-size:12px;">Tidak ada kamera terdaftar</div>';
+    return;
+  }
+  
+  let appendCount = 0;
+  cameras.forEach((cam, index)=>{
+    console.log(`[buildCamMenu] Processing camera ${index}:`, cam.id, cam.name);
+    const isOnline=connStatus[cam.id]?.connected||false;
+    const type=(cam.sourceType||'rtsp').toUpperCase();
+    const div=document.createElement('button');
+    div.className=`cam-item${cam.id===activeCamId?' active':''}`;
+    div.dataset.camId=cam.id;
+    div.innerHTML=`
+      <div class="cam-item-icon ${isOnline?'online':'offline'}"><i data-lucide="${isOnline?'wifi':'wifi-off'}"></i></div>
+      <div style="flex:1;min-width:0;">
+        <div class="cam-item-name">${cam.name}</div>
+        <div class="cam-item-type">${type}</div>
+      </div>
+      <div class="cam-active-dot"></div>`;
+    div.addEventListener('click',e=>{e.stopPropagation();switchCamera(cam.id);});
+    menu.appendChild(div);
+    appendCount++;
+    console.log(`[buildCamMenu] Appended camera ${cam.id}, total children now:`, menu.children.length);
+  });
+  lucide.createIcons();
+  console.log('[buildCamMenu] DONE. Total items in menu:', appendCount, 'DOM children:', menu.children.length, 'innerHTML length:', menu.innerHTML.length);
+}
+
+// Dropdown open/close
+document.getElementById('cam-dd-trigger').addEventListener('click',e=>{
+  e.stopPropagation();
+  document.getElementById('cam-dd').classList.toggle('open');
+});
+document.addEventListener('click',()=>{
+  document.getElementById('cam-dd').classList.remove('open');
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  STATUS POLLING
+// ═══════════════════════════════════════════════════════════════
+async function fetchStatus(){
+  try{
+    const r=await fetch('/api/status');
+    connStatus=await r.json();
+    updatePlayerStatus();
+    // refresh icon states in dropdown ONLY if dropdown is not open (don't rebuild while user is viewing)
+    const dd=document.getElementById('cam-dd');
+    if(!dd || !dd.classList.contains('open')){
+      buildCamMenu();
+    }
+    document.querySelectorAll('.nvr-dot').forEach(dot=>{
+      const cell=dot.closest('[data-cam-id]');
+      if(cell){
+        const id=parseInt(cell.dataset.camId);
+        const on=connStatus[id]?.connected;
+        dot.className=`nvr-dot ${on?'online':'offline'}`;
+      }
+    });
+  }catch(e){}
+}
+
+function updatePlayerStatus(){
+  const on=connStatus[activeCamId]?.connected;
+  const dot=document.getElementById('player-dot');
+  const badge=document.getElementById('detail-status-badge');
+  if(dot){dot.className=`player-dot ${on?'online':'offline'}`;}
+  if(badge){badge.className=`badge ${on?'badge-green':'badge-amber'}`;badge.textContent=on?'ONLINE':'OFFLINE';}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  STREAM DETAILS
+// ═══════════════════════════════════════════════════════════════
+async function fetchStreamDetail(){
+  try{
+    const r=await fetch('/api/go2rtc/streams');
+    if(!r.ok) return;
+    streamData=await r.json();
+    renderStreamDetail();
+  }catch(e){}
+}
+
+function renderStreamDetail(){
+  const key=`camera_${activeCamId}`;
+  const s=streamData[key];
+  if(!s) return;
+  let codec=null,bytes=0,hasActive=false;
+  (s.producers||[]).forEach(p=>{
+    if(p.receivers&&p.receivers.length>0){
+      hasActive=true;
+      p.receivers.forEach(rec=>{
+        if(rec.codec){const cn=(rec.codec.codec_name||'').toUpperCase();const ct=rec.codec.codec_type;
+          if(ct==='video') codec=cn==='HEVC'?'H.265/HEVC':cn==='H264'?'H.264/AVC':cn;}
+        bytes+=(rec.bytes||0);
+      });
+    }else{(p.medias||[]).forEach(m=>{if(typeof m==='string'&&m.startsWith('video')){const parts=m.split(',');if(parts[2])codec=parts[2].split('/')[0];}});}
+  });
+  const now=Date.now();
+  let bitrateLabel='Menghitung...';
+  if(hasActive&&bytes>0){
+    const pb=prevBytes[key]||0,pt=prevBytesTs[key]||now;
+    const db=bytes-pb,dt=(now-pt)/1000;
+    if(pb>0&&dt>0){const bps=db*8/dt;bitrateLabel=bps>=1e6?`${(bps/1e6).toFixed(2)} Mbps`:bps>=1000?`${Math.round(bps/1000)} Kbps`:`${Math.round(bps)} bps`;}
+    prevBytes[key]=bytes;prevBytesTs[key]=now;
+  }else if(!hasActive){bitrateLabel='—';}
+  const q=codec||(hasActive?'Terhubung':'Offline');
+  document.getElementById('d-quality').textContent=q;
+  document.getElementById('d-fps').textContent=hasActive?'Live':'—';
+  document.getElementById('d-bitrate').textContent=bitrateLabel;
+  document.getElementById('hud-quality').textContent=codec?`${codec} • Live`:hasActive?'Live':'—';
+  document.getElementById('hud-bitrate').textContent=bitrateLabel!=='Menghitung...'?bitrateLabel:'';
+}
+
+async function fetchUptime(){
+  try{const r=await fetch('/api/uptime');if(r.ok)uptimeData=await r.json();}catch(e){}
+}
+function renderUptime(){
+  const d=uptimeData[activeCamId];
+  if(!d||!d.active||!d.uptimeMs){
+    document.getElementById('d-uptime').textContent='—';
+    const mu = document.getElementById('metric-uptime');
+    if (mu) mu.textContent = '00:00:00';
+    return;
+  }
+  const s=Math.floor(d.uptimeMs/1000);
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
+  const formattedUptime = h>0?`${h}j ${String(m).padStart(2,'0')}m ${String(sec).padStart(2,'0')}d`:m>0?`${m}m ${String(sec).padStart(2,'0')}d`:`${sec}d`;
+  document.getElementById('d-uptime').textContent=formattedUptime;
+  const mu = document.getElementById('metric-uptime');
+  if (mu) mu.textContent = formattedUptime;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  AI ANALYTICS
+// ═══════════════════════════════════════════════════════════════
+async function syncAIState(camId){
+  try{
+    const r=await fetch(`/api/ai/${camId}/metadata`);
+    if(!r.ok) return;
+    const d=await r.json();
+    aiMode=d.mode||'none';
+    const sel=document.getElementById('ai-mode-select');
+    if(sel) sel.value=aiMode;
+    updateAIBadge();
+    const cons=document.getElementById('ai-console');
+    const tog=document.getElementById('ai-stream-toggle');
+    if(aiMode==='none'){
+      if(cons) cons.style.display='none';
+      if(tog&&tog.checked){tog.checked=false;toggleAIStream(false);}
+    }else{
+      if(cons) cons.style.display='block';
+      if(tog&&!tog.checked){tog.checked=true;toggleAIStream(true);}
+    }
+    await updateAISelectionDropdown();
+  }catch(e){}
+}
+
+function updateAIBadge(){
+  const b=document.getElementById('ai-engine-badge');
+  if(!b) return;
+  if(aiMode==='none'){b.className='badge badge-navy';b.textContent='OFF';}
+  else{b.className='badge badge-blue';b.textContent='AKTIF';}
+}
+
+async function changeAIMode(mode){
+  aiMode=mode;
+  updateAIBadge();
+  const cons=document.getElementById('ai-console');
+  const tog=document.getElementById('ai-stream-toggle');
+  const reloadOverlay=document.getElementById('reload-overlay');
+  
+  // Show loading indicator
+  if(reloadOverlay) reloadOverlay.classList.add('visible');
+  
+  if(mode==='none'){
+    if(cons) cons.style.display='none';
+    if(tog&&tog.checked){tog.checked=false;toggleAIStream(false);}
+  }else{
+    if(cons) cons.style.display='block';
+    if(tog&&!tog.checked){tog.checked=true;toggleAIStream(true);}
+  }
+  const payload={mode};
+  try{
+    const res = await fetch(`/api/ai/${activeCamId}/mode`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!res.ok){
+      let errMsg = 'Gagal mengubah mode AI';
+      try {
+        const errData = await res.json();
+        errMsg = errData.detail || errData.error || errMsg;
+      } catch(parseErr) {}
+      
+      toast(errMsg,'error');
+      await syncAIState(activeCamId);
+      if(reloadOverlay) reloadOverlay.classList.remove('visible');
+      return;
+    }
+    
+    toast(`Mode AI: ${getAILabel(mode)}`,'success');
+    await updateAISelectionDropdown();
+    
+    // Hide loading after successful mode change
+    setTimeout(()=>{
+      if(reloadOverlay) reloadOverlay.classList.remove('visible');
+    }, 1000);
+  }catch(e){
+    toast('Gagal mengubah mode AI','error');
+    await syncAIState(activeCamId);
+    if(reloadOverlay) reloadOverlay.classList.remove('visible');
+  }
+}
+
+async function updateAISelectionDropdown(){
+  try{
+    const r=await fetch('/api/ai/modes');
+    if(!r.ok) return;
+    const activeModes=await r.json();
+    
+    let activeAICount = 0;
+    for (const [cid, m] of Object.entries(activeModes)) {
+      if (parseInt(cid) !== activeCamId && m !== 'none') {
+        activeAICount++;
+      }
+    }
+    
+    const sel=document.getElementById('ai-mode-select');
+    const warn=document.getElementById('ai-limit-warning');
+    if(sel){
+      const currentVal = activeModes[activeCamId] || 'none';
+      const isLimitReached = activeAICount >= 2;
+      const isCurrentNone = currentVal === 'none';
+      
+      for(let i=0; i<sel.options.length; i++){
+        const opt = sel.options[i];
+        if(opt.value === 'none'){
+          opt.disabled = false;
+          continue;
+        }
+        
+        if(isLimitReached && isCurrentNone){
+          opt.disabled = true;
+          if(!opt.text.includes('(Limit Tercapai)')){
+            opt.text = opt.text.split(' (')[0] + ' (Limit Tercapai)';
+          }
+        } else {
+          opt.disabled = false;
+          opt.text = getOriginalAILabel(opt.value);
+        }
+      }
+      
+      if(warn){
+        if(isLimitReached && isCurrentNone){
+          warn.style.display = 'block';
+          warn.textContent = 'Maksimal 2 kamera aktif AI tercapai. Nonaktifkan AI di kamera lain terlebih dahulu.';
+        } else {
+          warn.style.display = 'none';
+        }
+      }
+    }
+  }catch(e){
+    console.error('Error updating AI dropdown:', e);
+  }
+}
+
+function getOriginalAILabel(m){
+  return {
+    face: 'Deteksi Wajah (Face Recognition)',
+    attribute: 'Atribut Pakaian & Objek Umum',
+    sop: 'Kepatuhan SOP (Timer ROI)',
+    contraflow: 'Deteksi Arah (Contraflow)',
+    drowsiness: 'Deteksi Kantuk (EAR)',
+    pose: 'Pose Estimation & Human Tracking'
+  }[m] || m;
+}
+
+function getAILabel(m){
+  return{none:'Nonaktif',face:'Deteksi Wajah',attribute:'Atribut Pakaian',sop:'Kepatuhan SOP',contraflow:'Deteksi Arah',drowsiness:'Deteksi Kantuk',pose:'Pose Estimation'}[m]||m;
+}
+
+function toggleAIStream(on){
+  showAI=on;
+  const feedImg=document.getElementById('feed-img');
+  const feedIframe=document.getElementById('feed-iframe');
+  const reloadOverlay=document.getElementById('reload-overlay');
+  const go2Host=`http://${location.hostname}:1984`;
+  
+  // Show loading indicator
+  if(reloadOverlay){
+    reloadOverlay.classList.add('visible');
+  }
+  
+  // If turning on but mode is none, auto-select face
+  if(on&&aiMode==='none'){
+    const sel=document.getElementById('ai-mode-select');
+    if(sel){sel.value='face';changeAIMode('face');return;}
+  }
+  
+  if(on){
+    // Switch to AI stream
+    feedIframe.style.display='none';
+    feedIframe.src='';
+    feedImg.style.display='block';
+    
+    // Set src directly
+    const aiStreamUrl = `http://${location.hostname}:5001/stream?cam_id=${activeCamId}&_=${Date.now()}`;
+    feedImg.src = aiStreamUrl;
+    
+    // Hide loading overlay after a short delay to allow stream to connect
+    setTimeout(()=>{
+      if(reloadOverlay) reloadOverlay.classList.remove('visible');
+    }, 800);
+    
+  }else{
+    // Switch back to normal stream
+    feedImg.style.display='none';
+    feedImg.src='';
+    feedIframe.style.display='block';
+    feedIframe.src=`${go2Host}/stream.html?src=camera_${activeCamId}&mode=webrtc&buffer=0&media=video,audio`;
+    
+    // Hide loading after short delay
+    setTimeout(()=>{
+      if(reloadOverlay) reloadOverlay.classList.remove('visible');
+    }, 800);
+  }
+}
+
+function startAIPolling(){
+  if(aiInterval) clearInterval(aiInterval);
+  aiInterval=setInterval(fetchAIMeta,600);
+}
+
+async function fetchAIMeta(){
+  if(aiMode==='none'||activeTab!=='dashboard') return;
+  try{
+    const r=await fetch(`/api/ai/${activeCamId}/metadata`);
+    if(!r.ok) return;
+    renderAIMeta(await r.json());
+  }catch(e){}
+}
+
+function renderAIMeta(d){
+  const el=document.getElementById('ai-console');
+  if(!el) return;
+  let lines=[];
+  lines.push(`[ENGINE] ${d.engine}`);
+  if(aiMode==='face'){
+    lines.push(`[WAJAH]  ${d.face_detected?'⚠ Terdeteksi':'Mencari...'}`);
+    if(d.face_name&&d.face_name!=='None') lines.push(`[NAMA]   ${d.face_name}`);
+  }else if(aiMode==='attribute'){
+    const oc=d.object_counts||{};
+    const keys=Object.keys(oc);
+    if(keys.length){lines.push('[DETEKSI]');keys.forEach(k=>lines.push(`  • ${k}: ${oc[k]}x`));}
+    else lines.push('[DETEKSI] Menunggu objek di frame...');
+    const objs=Array.isArray(d.detected_objects_list)?d.detected_objects_list:[];
+    if(objs.length){lines.push('[ATRIBUT]');objs.slice(0,4).forEach((o,i)=>{
+      lines.push(`  ${i+1}. ${o.class} ${Math.round((o.conf||0)*100)}%`);
+      (o.attributes||[]).forEach(a=>lines.push(`     ↳ ${a}`));
+    });}
+  }else if(aiMode==='drowsiness'){
+    const drowsy=d.drowsiness_status==='Mengantuk';
+    lines.push(`[STATUS] ${drowsy?'⚠ MENGANTUK!':'Normal'}`);
+    lines.push(`[EAR]    ${(d.ear_value||0).toFixed(3)}`);
+    if(drowsy) lines.push('[ALARM]  Alarm Berbunyi!');
+  }else if(aiMode==='pose'){
+    lines.push(`[TRACKED] ${d.people_count||0} orang`);
+    (d.pose_data||[]).slice(0,3).forEach(p=>lines.push(`  Person #${p.id} conf:${Math.round(p.conf*100)}%`));
+  }else if(aiMode==='sop'){
+    const viol=d.sop_status==='MELANGGAR';
+    lines.push(`[SOP]    ${d.sop_status}`);
+    lines.push(`[DURASI] ${d.sop_duration_s}s`);
+    if(viol) lines.push('[ALARM]  ⚠ Operator stagnan di area!');
+  }else if(aiMode==='contraflow'){
+    lines.push(`[CF]     ${d.contraflow_status}`);
+    if(d.contraflow_alarm) lines.push('[ALARM]  ⚠ Arah jalur dilanggar!');
+  }
+  el.textContent=lines.join('\n');
+  
+  // Update the new bottom dashboard metrics and live activity logs
+  processLiveStats(d);
+}
+
+function addDetectionLog(message, type = 'info') {
+  const list = document.getElementById('detection-history-list');
+  if (!list) return;
+  
+  const now = new Date();
+  const ts = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  
+  const item = document.createElement('div');
+  item.style.display = 'flex';
+  item.style.alignItems = 'flex-start';
+  item.style.gap = '6px';
+  item.style.lineHeight = '1.4';
+  
+  let color = '#38bdf8';
+  let badgeText = 'INFO';
+  let badgeBg = 'rgba(56, 189, 248, 0.12)';
+  
+  if (type === 'warning') {
+    color = '#f59e0b';
+    badgeText = 'PERINGATAN';
+    badgeBg = 'rgba(245, 158, 11, 0.12)';
+  } else if (type === 'danger') {
+    color = '#ef4444';
+    badgeText = 'BAHAYA';
+    badgeBg = 'rgba(239, 68, 68, 0.12)';
+  } else if (type === 'success') {
+    color = '#10b981';
+    badgeText = 'SUKSES';
+    badgeBg = 'rgba(16, 185, 129, 0.12)';
+  }
+  
+  item.innerHTML = `
+    <span style="color: var(--text-3); flex-shrink: 0;">[${ts}]</span>
+    <span style="font-size: 8px; font-weight: 700; color: ${color}; background: ${badgeBg}; border: 1px solid ${color}40; padding: 1px 4px; border-radius: 3px; flex-shrink: 0; text-transform: uppercase;">${badgeText}</span>
+    <span style="color: #e2e8f0; flex: 1; word-break: break-all;">${message}</span>
+  `;
+  
+  if (list.querySelector('div[style*="text-align: center"]')) {
+    list.innerHTML = '';
+  }
+  
+  list.insertBefore(item, list.firstChild);
+  
+  while (list.children.length > 20) {
+    list.removeChild(list.lastChild);
+  }
+}
+
+function renderActivityChart() {
+  const container = document.getElementById('activity-chart-svg-container');
+  if(!container) return;
+  container.innerHTML = '';
+  
+  const maxVal = Math.max(...hourlyStats, 1);
+  const hoursDiv = document.getElementById('activity-chart-hours');
+  const now = new Date();
+  
+  if (hoursDiv) {
+    hoursDiv.innerHTML = '';
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 3600 * 1000);
+      const lbl = `${String(d.getHours()).padStart(2, '0')}:00`;
+      const span = document.createElement('span');
+      span.textContent = lbl;
+      hoursDiv.appendChild(span);
+    }
+  }
+  
+  hourlyStats.forEach((val, idx) => {
+    const pct = (val / maxVal) * 100;
+    const bar = document.createElement('div');
+    bar.style.height = `${Math.max(8, pct)}%`;
+    bar.style.background = idx === 4 ? 'var(--accent)' : 'var(--navy-soft)';
+    bar.style.flex = '1';
+    bar.style.borderRadius = 'var(--r4)';
+    bar.style.position = 'relative';
+    bar.style.transition = 'height 0.3s ease';
+    bar.title = `${val} deteksi`;
+    
+    const tooltip = document.createElement('span');
+    tooltip.textContent = val;
+    tooltip.style.position = 'absolute';
+    tooltip.style.top = '-20px';
+    tooltip.style.left = '50%';
+    tooltip.style.transform = 'translateX(-50%)';
+    tooltip.style.fontSize = '9px';
+    tooltip.style.fontWeight = '700';
+    tooltip.style.color = 'var(--text-3)';
+    bar.appendChild(tooltip);
+    
+    container.appendChild(bar);
+  });
+}
+
+function processLiveStats(d) {
+  // Update FPS metric card
+  const fpsVal = d.fps !== undefined ? d.fps : 0.0;
+  const fpsEl = document.getElementById('metric-fps');
+  if (fpsEl) fpsEl.textContent = fpsVal.toFixed(1);
+  
+  // Track unique people counts using track IDs (pose estimation) or current frame counts
+  let currentPeople = d.people_count || 0;
+  
+  if (d.pose_data && d.pose_data.length > 0) {
+    d.pose_data.forEach(p => {
+      if (p.id !== undefined && p.id !== -1) {
+        uniquePeopleToday.add(p.id);
+      }
+    });
+  } else if (currentPeople > 0) {
+    uniquePeopleToday.add("p_" + currentPeople);
+  }
+  
+  const peopleCountEl = document.getElementById('metric-people-count');
+  if (peopleCountEl) {
+    peopleCountEl.textContent = uniquePeopleToday.size;
+  }
+  
+  // Update hourly chart
+  const now = new Date();
+  const currentHour = now.getHours();
+  if (lastHourRecorded !== -1 && lastHourRecorded !== currentHour) {
+    hourlyStats.shift();
+    hourlyStats.push(0);
+    lastHourRecorded = currentHour;
+  } else if (lastHourRecorded === -1) {
+    lastHourRecorded = currentHour;
+  }
+  hourlyStats[4] = uniquePeopleToday.size;
+  renderActivityChart();
+  
+  // Live state changes detection & logging
+  if (currentPeople !== lastDetectionStates.peopleCount) {
+    if (currentPeople > 0) {
+      addDetectionLog(`${currentPeople} orang terdeteksi di area`, 'info');
+    } else if (lastDetectionStates.peopleCount > 0) {
+      addDetectionLog(`Area kembali bersih (tidak ada orang)`, 'success');
+    }
+    lastDetectionStates.peopleCount = currentPeople;
+  }
+  
+  if (d.sop_status && d.sop_status !== lastDetectionStates.sopStatus) {
+    if (d.sop_status === 'MELANGGAR') {
+      addDetectionLog(`Pelanggaran SOP: Operator terlalu lama di ROI (${d.sop_duration_s}s)`, 'danger');
+    } else {
+      addDetectionLog(`Status SOP kembali normal`, 'success');
+    }
+    lastDetectionStates.sopStatus = d.sop_status;
+  }
+  
+  if (d.contraflow_status && d.contraflow_status !== lastDetectionStates.contraflowStatus) {
+    if (d.contraflow_status === 'MELANGGAR') {
+      addDetectionLog(`Deteksi Contraflow: Arah pergerakan dilanggar!`, 'danger');
+    } else {
+      addDetectionLog(`Jalur contraflow kembali aman`, 'success');
+    }
+    lastDetectionStates.contraflowStatus = d.contraflow_status;
+  }
+  
+  if (d.drowsiness_status && d.drowsiness_status !== lastDetectionStates.drowsinessStatus) {
+    if (d.drowsiness_status === 'Mengantuk') {
+      addDetectionLog(`PERINGATAN KANTUK: Operator mengantuk (EAR: ${d.ear_value.toFixed(3)})`, 'danger');
+    } else {
+      addDetectionLog(`Status kesadaran operator kembali normal`, 'success');
+    }
+    lastDetectionStates.drowsinessStatus = d.drowsiness_status;
+  }
+  
+  if (d.face_name && d.face_name !== 'None' && d.face_name !== lastDetectionStates.faceName) {
+    if (d.face_name === 'Tidak Dikenal') {
+      addDetectionLog(`Wajah tidak dikenal terdeteksi`, 'warning');
+    } else {
+      addDetectionLog(`Wajah teridentifikasi: ${d.face_name}`, 'success');
+    }
+    lastDetectionStates.faceName = d.face_name;
+  }
+}
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  GRID MODE — BUG FIX: keep sidebar visible in grid mode
+// ═══════════════════════════════════════════════════════════════
+function setGrid(cols){
+  gridCols=cols;
+  [1,2,3,4].forEach(n=>{
+    document.getElementById(`gp${n}`).classList.toggle('active',n===cols);
+  });
+  const sv=document.getElementById('single-view');
+  const gv=document.getElementById('grid-view');
+  const ss=document.getElementById('sidebar-stack');
+  const rl=document.getElementById('reload-btn');
+  if(cols===1){
+    sv.style.display='block';gv.style.display='none';
+    if(ss) ss.style.display='flex';
+    if(rl) rl.style.display='';
+    switchCamera(activeCamId);
+  }else{
+    sv.style.display='none';gv.style.display='block';
+    // BUG FIX: sidebar tetap tampil di grid mode
+    if(ss) ss.style.display='flex';
+    if(rl) rl.style.display='none';
+    renderGrid(cols);
+  }
+}
+
+function renderGrid(cols){
+  const grid=document.getElementById('nvr-grid');
+  grid.className=`nvr-grid g${cols}`;
+  grid.innerHTML='';
+  const total=cols*cols;
+  for(let i=0;i<total;i++){
+    const cam=cameras[i];
+    const cell=document.createElement('div');
+    cell.className='nvr-cell';
+    if(cam){
+      cell.dataset.camId=cam.id;
+      const on=connStatus[cam.id]?.connected||false;
+      const lbl=`CAM-${String(cam.id+1).padStart(2,'0')}`;
+      const src=`http://${location.hostname}:1984/stream.html?src=camera_${cam.id}&mode=webrtc&buffer=0&media=video`;
+      cell.innerHTML=`<iframe src="${src}" allowfullscreen allow="autoplay"></iframe>
+        <div class="nvr-label">
+          <span class="nvr-label-name">${lbl} · ${cam.name}</span>
+          <span class="nvr-dot ${on?'online':'offline'}"></span>
+        </div>
+        <div class="nvr-hint"><span>Buka Single View</span></div>`;
+      cell.addEventListener('click',()=>{setGrid(1);switchCamera(cam.id);});
+    }else{
+      cell.style.display='flex';cell.style.alignItems='center';cell.style.justifyContent='center';
+      cell.innerHTML='<i data-lucide="video-off" style="width:28px;height:28px;color:rgba(255,255,255,.15);"></i>';
+    }
+    grid.appendChild(cell);
+  }
+  lucide.createIcons();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PLAYER ACTIONS
+// ═══════════════════════════════════════════════════════════════
+function reloadStream(){
+  const ov=document.getElementById('reload-overlay');
+  const ic=document.getElementById('reload-icon');
+  const qic=document.getElementById('qa-reload-icon');
+  if(ov) ov.classList.add('visible');
+  if(ic) ic.classList.add('animate-spin');
+  if(qic) qic.classList.add('animate-spin');
+  const iframe=document.getElementById('feed-iframe');
+  const img=document.getElementById('feed-img');
+  if(showAI&&img.style.display!=='none'){
+    img.src=`http://${location.hostname}:5001/stream?cam_id=${activeCamId}&_=${Date.now()}`;
+  }else{
+    const src=iframe.src.split('&t=')[0];
+    iframe.src=`${src}&t=${Date.now()}`;
+  }
+  setTimeout(()=>{
+    if(ov) ov.classList.remove('visible');
+    if(ic) ic.classList.remove('animate-spin');
+    if(qic) qic.classList.remove('animate-spin');
+    toast('Stream dimuat ulang','success');
+  },350);
+}
+
+async function takeSnapshot(){
+  const sh=document.getElementById('shutter');
+  if(sh){sh.classList.add('flash');setTimeout(()=>sh.classList.remove('flash'),200);}
+  toast('Mengambil snapshot...','info');
+  try{
+    const r=await fetch(`/api/snapshot/${activeCamId}?t=${Date.now()}`);
+    console.log('[SNAPSHOT] Response status:', r.status, r.statusText);
+    
+    if(!r.ok){
+      const errText = await r.text();
+      console.error('[SNAPSHOT] Error response:', errText);
+      toast(`Snapshot gagal: ${errText.substring(0,50)}`,'error');
+      return;
+    }
+    
+    const blob=await r.blob();
+    console.log('[SNAPSHOT] Blob size:', blob.size, 'type:', blob.type);
+    
+    if(!blob||blob.size===0){
+      toast('Snapshot gagal: data kosong','error');
+      return;
+    }
+    
+    const cam=cameras.find(c=>c.id===activeCamId);
+    const name=(cam?cam.name:`Kamera-${activeCamId}`).replace(/\s+/g,'_');
+    const ts=new Date().toISOString().replace(/[:.]/g,'-').replace('T','_').split('.')[0];
+    const fname=`Snapshot_${name}_${ts}.jpg`;
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=fname;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),10000);
+    toast(`Snapshot disimpan: ${fname}`,'success');
+  }catch(e){
+    console.error('[SNAPSHOT] Exception:', e);
+    toast(`Snapshot error: ${e.message}`,'error');
+  }
+}
+
+function goFullscreen(){
+  const el=document.getElementById('feed-wrap');
+  if(!document.fullscreenElement)(el.requestFullscreen||el.webkitRequestFullscreen).call(el);
+  else document.exitFullscreen&&document.exitFullscreen();
+}
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  PTZ
+// ═══════════════════════════════════════════════════════════════
+let activePTZ=null;
+async function startPTZ(dir){
+  activePTZ=dir;
+  const b=document.getElementById('ptz-badge');
+  if(b){b.className='badge badge-red';b.textContent='BERGERAK';}
+  try{
+    const r=await fetch(`/api/ptz/${activeCamId}/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:dir,speed:.5})});
+    const d=await r.json();
+    if(!d.success){toast(d.message||'PTZ gagal','error');stopPTZ();}
+  }catch(e){toast('PTZ tidak terjangkau','error');stopPTZ();}
+}
+async function stopPTZ(){
+  if(!activePTZ) return;
+  activePTZ=null;
+  const b=document.getElementById('ptz-badge');
+  if(b){b.className='badge badge-green';b.textContent='SIAP';}
+  try{await fetch(`/api/ptz/${activeCamId}/stop`,{method:'POST',headers:{'Content-Type':'application/json'}});}catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SYSTEM LOGS
+// ═══════════════════════════════════════════════════════════════
+async function fetchLogs(){
+  try{
+    const r=await fetch('/api/logs');
+    cachedLogs=await r.json();
+    filterLogs();
+  }catch(e){}
+}
+
+function filterLogs(){
+  const q=(document.getElementById('log-search')?.value||'').toLowerCase();
+  const src=document.getElementById('log-filter')?.value||'all';
+  const filtered=cachedLogs.filter(l=>{
+    const ms=src==='all'||(l.source&&l.source.split('-')[0].toLowerCase()===src.toLowerCase());
+    const mq=!q||(l.message&&l.message.toLowerCase().includes(q))||(l.source&&l.source.toLowerCase().includes(q));
+    return ms&&mq;
+  });
+  renderLogs(filtered);
+}
+
+function renderLogs(logs){
+  const box=document.getElementById('terminal-box');
+  const atBottom=box.scrollHeight-box.clientHeight<=box.scrollTop+30;
+  box.innerHTML='';
+  if(!logs.length){box.innerHTML='<span style="opacity:.35;display:block;text-align:center;padding-top:24px;">Tidak ada log cocok.</span>';return;}
+  logs.forEach(l=>{
+    const div=document.createElement('div');div.className='log-line';
+    const cs=l.source?l.source.split('-')[0]:'system';
+    div.innerHTML=`<span class="log-ts">[${l.timestamp}]</span><span class="log-src ${cs}">${l.source||'system'}</span><span class="log-msg">${l.message}</span>`;
+    box.appendChild(div);
+  });
+  if(atBottom) box.scrollTop=box.scrollHeight;
+}
+
+function clearLogsUI(){box=document.getElementById('terminal-box');if(box)box.innerHTML='<span style="opacity:.35;display:block;text-align:center;padding-top:24px;">Log dibersihkan. Menunggu log baru...</span>';cachedLogs=[];}
+
+// Diagnostics
+function populateDiagDd(){
+  const sel=document.getElementById('diag-cam-sel');if(!sel) return;
+  sel.innerHTML='';
+  cameras.forEach(cam=>{const o=document.createElement('option');o.value=cam.id;o.textContent=`CAM-${String(cam.id+1).padStart(2,'0')} — ${cam.name}`;sel.appendChild(o);});
+}
+
+async function runDiag(){
+  const camId=document.getElementById('diag-cam-sel').value;
+  const action=document.getElementById('diag-action-sel').value;
+  const term=document.getElementById('diag-terminal');
+  const btn=document.getElementById('btn-run-diag');
+  const lbl=document.getElementById('diag-label');
+  if(!camId){toast('Pilih kamera target','error');return;}
+  btn.disabled=true;if(lbl) lbl.textContent='Memproses...';
+  term.textContent=`Menjalankan ${action.toUpperCase()} untuk camera_${camId}...\nMohon tunggu...`;
+  try{
+    const r=await fetch(`/api/diagnose/${camId}/${action}`,{method:'POST'});
+    const d=await r.json();
+    if(r.ok&&d.success){term.textContent=d.output||'Selesai.';toast('Diagnostik berhasil','success');}
+    else{term.textContent=`ERROR:\n${d.error||d.output||'Gagal'}`;toast('Diagnostik gagal','error');}
+  }catch(e){term.textContent=`EXCEPTION:\n${e.message}`;toast('Diagnostik error','error');}
+  finally{btn.disabled=false;if(lbl) lbl.textContent='Jalankan Diagnostik';}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DROWSINESS HISTORY
+// ═══════════════════════════════════════════════════════════════
+async function fetchDrowsiness(){
+  const tbody=document.getElementById('drowsiness-tbody');
+  if(!tbody) return;
+  tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-3);">Memuat data...</td></tr>';
+  try{
+    const r=await fetch('/api/drowsiness/history');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const rows=await r.json();
+    tbody.innerHTML='';
+    if(!rows.length){tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text-3);">Belum ada riwayat kantuk.</td></tr>';return;}
+    rows.forEach(row=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td style="font-family:monospace;font-weight:700;">#${row.id}</td>
+        <td style="font-weight:600;">Kamera ${row.cam_id+1}</td>
+        <td style="font-family:monospace;color:var(--text-2);">${row.timestamp}</td>
+        <td style="font-family:monospace;font-weight:700;color:var(--red);">${row.ear.toFixed(3)}</td>
+        <td><span class="badge badge-red">MENGANTUK</span></td>`;
+      tbody.appendChild(tr);
+    });
+  }catch(e){tbody.innerHTML=`<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--red);font-weight:600;">Gagal memuat: ${e.message}</td></tr>`;}
+}
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CONFIG DRAWER
+// ═══════════════════════════════════════════════════════════════
+function openDrawer(){
+  draftCams=cameras.map((c,i)=>({...c,id:i}));
+  if(!draftCams.length) draftCams=[{id:0,name:'',url:'',sourceType:'rtsp',filePath:'',relayUrl:'',onvifPort:'',onvifUsername:'admin',onvifPassword:'',fastStart:0,lowLatency:0}];
+  renderDrawerForm();
+  document.getElementById('config-drawer').classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+}
+function closeDrawer(){
+  document.getElementById('config-drawer').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+}
+
+document.getElementById('open-config-btn').addEventListener('click',openDrawer);
+document.getElementById('close-drawer').addEventListener('click',closeDrawer);
+document.getElementById('cancel-drawer').addEventListener('click',closeDrawer);
+document.getElementById('overlay').addEventListener('click',closeDrawer);
+document.getElementById('save-drawer').addEventListener('click',saveConfig);
+
+function getUrlType(url){
+  if(!url) return '';
+  if(url.includes('.m3u8')) return 'hls';
+  if(url.startsWith('rtsp://')&&(url.includes(':8554')||url.includes(':1984'))) return 'relay';
+  return 'rtsp';
+}
+
+function renderDrawerForm(){
+  const body=document.getElementById('drawer-body');
+  body.innerHTML='';
+  const tip=document.createElement('div');
+  tip.className='drawer-tip';
+  tip.innerHTML='<strong>💡 Tips Konfigurasi</strong>Isi URL Direct RTSP kamera. URL Relay opsional (IP go2rtc teman). ONVIF Port aktifkan panel PTZ di dashboard (biasanya 80, 8000, atau 8899).';
+  body.appendChild(tip);
+
+  draftCams.forEach((cam,idx)=>{
+    const type=cam.sourceType||'rtsp';
+    const row=document.createElement('div');
+    row.className='cam-row';row.id=`cr-${idx}`;
+    row.innerHTML=`
+      <div class="cam-row-head">
+        <div class="cam-row-label"><i data-lucide="video"></i> Kamera ${idx+1}</div>
+        <button class="btn-rm" onclick="removeCam(${idx})" ${draftCams.length<=1?'disabled':''}>
+          <i data-lucide="trash-2"></i> Hapus</button>
+      </div>
+      <div class="form-group" style="margin-bottom:8px;">
+        <label class="form-label">Tipe Sumber</label>
+        <div class="picker-tabs">
+          <button type="button" class="ptab ${type==='rtsp'?'active':''}" onclick="setSourceType(${idx},'rtsp')">📡 RTSP</button>
+          <button type="button" class="ptab ${type==='hls'?'active':''}" onclick="setSourceType(${idx},'hls')">📡 HLS</button>
+          <button type="button" class="ptab ${type==='youtube'?'active':''}" onclick="setSourceType(${idx},'youtube')">▶ YouTube</button>
+          <button type="button" class="ptab ${type==='file'?'active':''}" onclick="setSourceType(${idx},'file')">📁 File</button>
+        </div>
+        <input type="hidden" id="st-${idx}" value="${type}">
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Nama Kamera</label>
+          <input class="form-input" id="dn-${idx}" value="${cam.name||''}" placeholder="Kamera Pintu Masuk">
+        </div>
+        <div class="form-group" id="url-grp-${idx}" style="display:${type!=='file'?'flex':'none'};flex-direction:column;gap:4px;">
+          <label class="form-label" id="url-lbl-${idx}">${type==='rtsp'?'URL RTSP':type==='hls'?'URL HLS':'YouTube URL'}</label>
+          <input class="form-input" id="du-${idx}" value="${cam.url||''}" placeholder="${type==='rtsp'?'rtsp://admin:pass@192.168.x.x:554/live':'https://example.com/stream.m3u8'}">
+        </div>
+      </div>
+      <div id="file-grp-${idx}" style="display:${type==='file'?'block':'none'};">
+        <label class="form-label">Unggah File MP4</label>
+        <div class="drop-zone" id="dz-${idx}" onclick="triggerFile(${idx})" ondragover="event.preventDefault();this.classList.add('over')" ondragleave="this.classList.remove('over')" ondrop="handleDrop(event,${idx})">
+          <i data-lucide="upload-cloud"></i>
+          <div class="drop-text" id="dz-txt-${idx}">${cam.filePath?`Terunggah: ${cam.filePath.split('/').pop()}`:'Drag &amp; Drop .mp4 atau klik untuk pilih'}</div>
+          <div class="drop-sub">Maks 50MB</div>
+          <input type="file" id="fi-${idx}" accept=".mp4,.mov,.avi,.mkv" style="display:none;" onchange="handleFile(${idx},this.files)">
+        </div>
+        <div class="upload-prog" id="up-${idx}" style="display:none;">
+          <div class="prog-bar"><div class="prog-fill" id="pf-${idx}"></div></div>
+          <span class="prog-pct" id="pp-${idx}">0%</span>
+        </div>
+        <input type="hidden" id="dfp-${idx}" value="${cam.filePath||''}">
+      </div>
+      <div id="rtsp-extra-${idx}" style="display:${type==='rtsp'?'block':'none'};margin-top:8px;">
+        <div class="form-group" style="margin-bottom:8px;">
+          <label class="form-label">URL Relay (opsional)</label>
+          <input class="form-input" id="drl-${idx}" value="${cam.relayUrl||''}" placeholder="rtsp://192.168.x.x:8554/camera_0">
+        </div>
+        <div class="form-grid">
+          <div class="form-group"><label class="form-label">ONVIF Port (PTZ)</label>
+            <input class="form-input" type="number" id="dop-${idx}" value="${cam.onvifPort||''}" placeholder="80 / 8000"></div>
+          <div class="form-group"><label class="form-label">ONVIF User</label>
+            <input class="form-input" id="dou-${idx}" value="${cam.onvifUsername||'admin'}"></div>
+        </div>
+        <div class="form-group" style="margin-top:8px;"><label class="form-label">ONVIF Password</label>
+          <input class="form-input" type="password" id="dopw-${idx}" value="${cam.onvifPassword||''}"></div>
+      </div>`;
+    body.appendChild(row);
+  });
+
+  const addBtn=document.createElement('button');
+  addBtn.className='btn-add-cam';addBtn.onclick=addCam;
+  addBtn.innerHTML='<i data-lucide="plus-circle"></i> Tambah Kamera';
+  body.appendChild(addBtn);
+  lucide.createIcons();
+}
+
+function setSourceType(idx,type){
+  document.getElementById(`st-${idx}`).value=type;
+  const row=document.getElementById(`cr-${idx}`);
+  row.querySelectorAll('.ptab').forEach(t=>{
+    const txt=t.textContent.toLowerCase();
+    t.classList.toggle('active',
+      (type==='rtsp'&&txt.includes('rtsp'))||(type==='hls'&&txt.includes('hls'))||
+      (type==='youtube'&&txt.includes('youtube'))||(type==='file'&&txt.includes('file')));
+  });
+  document.getElementById(`url-grp-${idx}`).style.display=type!=='file'?'flex':'none';
+  document.getElementById(`file-grp-${idx}`).style.display=type==='file'?'block':'none';
+  document.getElementById(`rtsp-extra-${idx}`).style.display=type==='rtsp'?'block':'none';
+  const lbl=document.getElementById(`url-lbl-${idx}`);
+  if(lbl) lbl.textContent=type==='hls'?'URL HLS (.m3u8)':type==='youtube'?'Tautan YouTube Live':'URL Direct RTSP';
+}
+function addCam(){draftCams.push({id:draftCams.length,name:'',url:'',sourceType:'rtsp',filePath:'',relayUrl:'',onvifPort:'',onvifUsername:'admin',onvifPassword:'',fastStart:0,lowLatency:0});renderDrawerForm();}
+function removeCam(idx){if(draftCams.length<=1) return;draftCams.splice(idx,1);renderDrawerForm();}
+function triggerFile(idx){document.getElementById(`fi-${idx}`).click();}
+function handleDrop(e,idx){e.preventDefault();document.getElementById(`dz-${idx}`).classList.remove('over');if(e.dataTransfer.files.length) handleFile(idx,e.dataTransfer.files);}
+function handleFile(idx,files){
+  if(!files.length) return;
+  const f=files[0];
+  if(f.size>50*1024*1024){toast('File maksimal 50MB','error');return;}
+  const fd=new FormData();fd.append('file',f);
+  const up=document.getElementById(`up-${idx}`);const pf=document.getElementById(`pf-${idx}`);const pp=document.getElementById(`pp-${idx}`);const dt=document.getElementById(`dz-txt-${idx}`);
+  up.style.display='flex';dt.textContent=`Mengunggah: ${f.name}`;
+  const xhr=new XMLHttpRequest();xhr.open('POST','/api/upload',true);
+  xhr.upload.onprogress=e2=>{if(e2.lengthComputable){const p=Math.round(e2.loaded/e2.total*100);if(pf)pf.style.width=p+'%';if(pp)pp.textContent=p+'%';}};
+  xhr.onload=()=>{if(xhr.status===200){try{const res=JSON.parse(xhr.responseText);if(res.success){document.getElementById(`dfp-${idx}`).value=res.filePath;dt.textContent=`Terunggah: ${f.name}`;toast('Unggahan berhasil','success');}else toast(res.message||'Gagal','error');}catch(e){toast('Error respon server','error');}}else toast('Upload gagal','error');};
+  xhr.send(fd);
+}
+
+async function saveConfig(){
+  const updated=draftCams.map((c,idx)=>({
+    id:idx,
+    name:(document.getElementById(`dn-${idx}`)?.value||`Kamera ${idx+1}`).trim(),
+    url:(document.getElementById(`du-${idx}`)?.value||'').trim(),
+    sourceType:document.getElementById(`st-${idx}`)?.value||'rtsp',
+    filePath:document.getElementById(`dfp-${idx}`)?.value||'',
+    relayUrl:(document.getElementById(`drl-${idx}`)?.value||'').trim(),
+    onvifPort:document.getElementById(`dop-${idx}`)?.value?parseInt(document.getElementById(`dop-${idx}`)?.value):'',
+    onvifUsername:(document.getElementById(`dou-${idx}`)?.value||'admin').trim(),
+    onvifPassword:(document.getElementById(`dopw-${idx}`)?.value||'').trim(),
+    fastStart:0,lowLatency:0
+  })).filter(c=>(c.url&&c.url.trim())||(c.sourceType==='file'&&c.filePath));
+  if(!updated.length){toast('Minimal 1 kamera dengan URL valid','error');return;}
+  const btn=document.getElementById('save-drawer');
+  const spin=document.getElementById('save-spinner');
+  const ic=document.getElementById('save-icon');
+  const lbl=document.getElementById('save-label');
+  btn.disabled=true;if(spin)spin.style.display='block';if(ic)ic.style.display='none';if(lbl)lbl.textContent='Menyimpan...';
+  try{
+    const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cameras:updated})});
+    const d=await r.json();
+    if(d.success){closeDrawer();toast(`${updated.length} kamera disimpan — stream aktif dalam 3s`,'success');setTimeout(fetchConfig,3000);}
+    else toast(d.message||'Gagal menyimpan','error');
+  }catch(e){toast('Gagal komunikasi server','error');}
+  finally{btn.disabled=false;if(spin)spin.style.display='none';if(ic)ic.style.display='';if(lbl)lbl.textContent='Simpan & Terapkan';}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded',()=>{
+  lucide.createIcons();
+  fetchConfig();
+  setInterval(fetchStatus,3000);
+  setInterval(fetchStreamDetail,3500);
+  setInterval(fetchUptime,5000);
+  setInterval(renderUptime,1000);
+  fetchUptime();
+  startAIPolling();
+});
+</script>
+</body>
+</html>

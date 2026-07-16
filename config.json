@@ -1,0 +1,46 @@
+{
+  "cameras": [
+    {
+      "id": 0,
+      "name": "Kamera Bogor",
+      "url": "rtsp://admin:admin123@103.59.161.120:8554/bogors",
+      "sourceType": "rtsp",
+      "originalUrl": "",
+      "filePath": "",
+      "relayUrl": "",
+      "onvifPort": 80,
+      "onvifUsername": "admin",
+      "onvifPassword": "",
+      "fastStart": 0,
+      "lowLatency": 0
+    },
+    {
+      "id": 1,
+      "name": "kamera tol",
+      "url": "rtsp://103.59.161.120:8554/tol",
+      "sourceType": "rtsp",
+      "originalUrl": "",
+      "filePath": "",
+      "relayUrl": "",
+      "onvifPort": null,
+      "onvifUsername": "admin",
+      "onvifPassword": "",
+      "fastStart": 0,
+      "lowLatency": 0
+    },
+    {
+      "id": 2,
+      "name": "Kantor_Telkom",
+      "url": "rtsp://admin:telkomiot123@192.168.1.116:554/cam/realmonitor?channel=1&subtype=1",
+      "sourceType": "rtsp",
+      "originalUrl": "",
+      "filePath": "",
+      "relayUrl": "",
+      "onvifPort": null,
+      "onvifUsername": "admin",
+      "onvifPassword": "",
+      "fastStart": 0,
+      "lowLatency": 0
+    }
+  ]
+}

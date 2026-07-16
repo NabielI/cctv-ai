@@ -1,0 +1,23 @@
+# Auto normalize line endings
+* text=auto
+
+# Shell scripts: selalu LF (Linux/Raspi butuh ini)
+*.sh text eol=lf
+
+# Python: LF
+*.py text eol=lf
+
+# JavaScript/JSON: LF
+*.js text eol=lf
+*.json text eol=lf
+
+# HTML/CSS: LF
+*.html text eol=lf
+*.css text eol=lf
+
+# Binary files: no conversion
+*.pt binary
+*.onnx binary
+*.db binary
+*.exe binary
+go2rtc/go2rtc binary
