@@ -3075,7 +3075,7 @@ function toggleAIStream(on){
     feedImg.style.display='block';
     
     // Set src directly
-    const aiStreamUrl = `http://${location.hostname}:5001/stream?cam_id=${activeCamId}&_=${Date.now()}`;
+    const aiStreamUrl = `/api/ai/stream?cam_id=${activeCamId}&_=${Date.now()}`;
     feedImg.src = aiStreamUrl;
     
     // Hide loading overlay after a short delay to allow stream to connect

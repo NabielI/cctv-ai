@@ -1144,6 +1144,41 @@ app.get('/api/ai/:id/metadata', (req, res) => {
     });
 });
 
+// AI stream proxy endpoint (pipes chunked MJPEG stream)
+app.get('/api/ai/stream', (req, res) => {
+    const camId = req.query.cam_id;
+    if (camId === undefined) {
+        return res.status(400).send('Missing cam_id query parameter');
+    }
+    
+    const options = {
+        hostname: '127.0.0.1',
+        port: 5001,
+        path: `/stream?cam_id=${camId}`,
+        method: 'GET',
+        timeout: 10000
+    };
+
+    const proxyReq = http.request(options, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+    });
+
+    proxyReq.on('error', (err) => {
+        console.error(`AI stream proxy error for cam_${camId}: ${err.message}`);
+        if (!res.headersSent) {
+            res.status(502).send('AI Service stream not available');
+        }
+    });
+
+    req.on('close', () => {
+        proxyReq.destroy();
+    });
+
+    proxyReq.end();
+});
+
+
 
 // Diagnostic endpoint: Ping camera IP
 app.post('/api/diagnose/:id/ping', (req, res) => {
