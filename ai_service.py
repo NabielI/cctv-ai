@@ -106,6 +106,9 @@ def api_set_mode(camera_id: int, mode_data: ModeChange):
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
     
+    if mode_data.mode in ['sop', 'contraflow']:
+        raise HTTPException(status_code=400, detail="Mode SOP dan Contraflow telah dinonaktifkan")
+
     # Check limit before setting mode
     if mode_data.mode != "none":
         active_ai_count = 0
@@ -122,7 +125,7 @@ def api_set_mode(camera_id: int, mode_data: ModeChange):
         # Pre-load model dynamically to prevent stream timeout/freeze in MJPEG thread
         try:
             print(f"[AI-SERVICE] Pre-loading model for mode: {mode_data.mode}", flush=True)
-            if mode_data.mode in ['face', 'sop', 'contraflow']:
+            if mode_data.mode == 'face':
                 load_yolo_model()
             elif mode_data.mode == 'attribute':
                 load_yolo_heavy()
@@ -155,6 +158,9 @@ def compat_set_mode(mode_data: ModeChange):
     if not cam:
         return JSONResponse(status_code=404, content={"success": False, "error": "Camera not registered"})
     
+    if mode_data.mode in ['sop', 'contraflow']:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Mode SOP dan Contraflow telah dinonaktifkan"})
+
     # Check limit before setting mode
     if mode_data.mode != "none":
         active_ai_count = 0
@@ -174,7 +180,7 @@ def compat_set_mode(mode_data: ModeChange):
         # Pre-load model dynamically to prevent stream timeout/freeze in MJPEG thread
         try:
             print(f"[AI-SERVICE] Pre-loading model for mode: {mode_data.mode}", flush=True)
-            if mode_data.mode in ['face', 'sop', 'contraflow']:
+            if mode_data.mode == 'face':
                 load_yolo_model()
             elif mode_data.mode == 'attribute':
                 load_yolo_heavy()

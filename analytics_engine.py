@@ -557,16 +557,16 @@ def run_yolo(frame, target_classes, model=None):
         with _yolo_lock:
             with torch.no_grad():
                 if target_classes is not None:
-                    results = active_model(frame, imgsz=yolo_imgsz, verbose=False, conf=0.35,
+                    results = active_model(frame, imgsz=yolo_imgsz, verbose=False, conf=0.25,
                                            classes=list(target_classes), device=_device)
                 else:
-                    results = active_model(frame, imgsz=yolo_imgsz, verbose=False, conf=0.35,
+                    results = active_model(frame, imgsz=yolo_imgsz, verbose=False, conf=0.25,
                                            device=_device)
         for r in results:
             for box in r.boxes:
                 cls  = int(box.cls[0])
                 conf = float(box.conf[0])
-                if conf < 0.35: continue
+                if conf < 0.25: continue
                 x1,y1,x2,y2 = map(int, box.xyxy[0].tolist())
                 detections.append((x1, y1, x2, y2, cls, conf))
     except Exception as e:
@@ -1120,7 +1120,7 @@ def process_pose(frame, infer_fr, scale, meta, cached_pose_data=None):
             persist=True,
             tracker="bytetrack.yaml",
             verbose=False,
-            conf=0.35,
+            conf=0.25,
             iou=0.55,
             device=_device,
             imgsz=pose_imgsz
@@ -1137,7 +1137,7 @@ def process_pose(frame, infer_fr, scale, meta, cached_pose_data=None):
                 box = boxes[i]
                 track_id = int(box.id[0]) if box.id is not None else -1
                 conf = float(box.conf[0]) if box.conf is not None else 0.0
-                if conf < 0.35:
+                if conf < 0.25:
                     continue
                 
                 box_xy = box.xyxy[0].cpu().numpy().tolist()
@@ -1201,10 +1201,10 @@ MODE_MAPPING = {
     "face": "face",
     "Atribut Pakaian & Objek Umum": "attribute",
     "attribute": "attribute",
-    "Kepatuhan SOP (Timer ROI)": "sop",
-    "sop": "sop",
-    "Deteksi Arah (Contraflow)": "contraflow",
-    "contraflow": "contraflow",
+    # "Kepatuhan SOP (Timer ROI)": "sop",
+    # "sop": "sop",
+    # "Deteksi Arah (Contraflow)": "contraflow",
+    # "contraflow": "contraflow",
     "Deteksi Kantuk (EAR)": "drowsiness",
     "drowsiness": "drowsiness",
     "Pose Estimation & Human Tracking": "pose",
@@ -1288,10 +1288,10 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
                 processed, meta = process_face(frame, state.get("last_persons_raw", []), last_meta, cached_faces=last_meta.get("faces"))
             elif mode == 'attribute':
                 processed, meta = process_attribute(frame, state.get("last_persons_raw", []), state.get("last_detections", []), state.get("last_bags_raw", []), last_meta, cached_colors=last_meta.get("cached_colors"))
-            elif mode == 'sop':
-                processed, meta = process_sop(cam_id, frame, state.get("last_persons_raw", []), state, last_meta)
-            elif mode == 'contraflow':
-                processed, meta = process_contraflow(cam_id, frame, state.get("last_persons_raw", []), state, last_meta)
+            # elif mode == 'sop':
+            #     processed, meta = process_sop(cam_id, frame, state.get("last_persons_raw", []), state, last_meta)
+            # elif mode == 'contraflow':
+            #     processed, meta = process_contraflow(cam_id, frame, state.get("last_persons_raw", []), state, last_meta)
             elif mode == 'pose':
                 processed, meta = process_pose(frame, None, 1.0, last_meta, cached_pose_data=last_meta.get("pose_data"))
             else:
@@ -1317,7 +1317,7 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
     # 1. Resize frame for faster AI inference
     # drowsiness uses MediaPipe (processes at original res — it's fast enough)
     # pose/attribute: downscale to 640 wide max
-    # face/sop/contraflow: downscale to 480 wide max (very light objects)
+    # face: downscale to 480 wide max (very light objects)
     if mode == 'drowsiness':
         infer_fr = frame
         scale = 1.0
@@ -1331,7 +1331,7 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
             infer_fr = frame
             scale = 1.0
     else:
-        # face/sop/contraflow — use smaller resize
+        # face — use smaller resize
         infer_w = 480
         if w > infer_w:
             scale = infer_w / w
@@ -1366,7 +1366,7 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
         "fps": round(state.get("fps", 0.0), 1)
     }
 
-    if mode in ['face', 'attribute', 'sop', 'contraflow']:
+    if mode in ['face', 'attribute']:
         if mode == 'attribute':
             active_model = load_yolo_heavy()
         else:
@@ -1410,10 +1410,10 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
             processed, meta = process_face(frame, persons_raw, meta)
         elif mode == 'attribute':
             processed, meta = process_attribute(frame, persons_raw, detections, bags_raw, meta)
-        elif mode == 'sop':
-            processed, meta = process_sop(cam_id, frame, persons_raw, state, meta)
-        elif mode == 'contraflow':
-            processed, meta = process_contraflow(cam_id, frame, persons_raw, state, meta)
+        # elif mode == 'sop':
+        #     processed, meta = process_sop(cam_id, frame, persons_raw, state, meta)
+        # elif mode == 'contraflow':
+        #     processed, meta = process_contraflow(cam_id, frame, persons_raw, state, meta)
         elif mode == 'drowsiness':
             processed, meta = process_drowsiness(cam_id, frame, state, meta)
         elif mode == 'pose':
