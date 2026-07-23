@@ -19,6 +19,11 @@ import urllib.request
 import importlib
 import ctypes
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 # ── MediaPipe Tasks API Windows compatibility monkeypatch for Python 3.12
 orig_cdll = ctypes.CDLL
 class PatchedCDLL(orig_cdll):
@@ -35,159 +40,211 @@ class PatchedCDLL(orig_cdll):
             raise e
 ctypes.CDLL = PatchedCDLL
 
-# ── YOLO Setup
-# yolov8n.pt for light modes (face/sop/contraflow/pose), yolov8s.pt for attribute (needs accuracy)
-HAS_YOLO = True
-yolo_model = None         # yolov8n — default fast model
-yolo_model_heavy = None   # yolov8s — only for attribute mode
+_yolo_lock = threading.RLock()
 
-# ── Model selection:
-# Jika env var FORCE_PT=1 atau OpenVINO kernel.errors.txt ada (corrupt model) → pakai .pt langsung
-# OpenVINO model di Raspberry Pi mengalami CISA kernel error (intersecting virtual registers),
-# sehingga sementara di-bypass dan diganti dengan PyTorch .pt CPU mode.
-_use_openvino = False  # DISABLED: OpenVINO model corrupt (lihat kernel.errors.txt)
-if os.environ.get("FORCE_OPENVINO", "0") == "1":
-    _use_openvino = True
-    print("[AI-ENGINE] FORCE_OPENVINO=1 detected, akan mencoba OpenVINO model.", flush=True)
+# Global model pointers and backend tracking status
+yolo_model = None
+yolo_model_backend = "PyTorch (CPU)"
+yolo_model_name_str = "yolo26n"
 
-if _use_openvino:
-    YOLO_MODEL_NAME = "yolov8n_openvino_model" if os.path.exists("yolov8n_openvino_model") else "yolov8n.pt"
-    YOLO_MODEL_HEAVY = "yolov8s_openvino_model" if os.path.exists("yolov8s_openvino_model") else "yolov8s.pt"
-else:
-    YOLO_MODEL_NAME = "yolov8n.pt"
-    YOLO_MODEL_HEAVY = "yolov8s.pt"
-    print(f"[AI-ENGINE] Mode: PyTorch CPU (OpenVINO bypass aktif karena kernel corrupt)", flush=True)
+yolo_model_heavy = None
+yolo_model_heavy_backend = "PyTorch (CPU)"
+yolo_model_heavy_name_str = "yolo26s"
 
-print(f"[AI-ENGINE] YOLO model yang akan dipakai: {YOLO_MODEL_NAME}", flush=True)
-print(f"[AI-ENGINE] YOLO heavy model: {YOLO_MODEL_HEAVY}", flush=True)
+yolo_pose_model = None
+yolo_pose_backend = "PyTorch (CPU)"
+yolo_pose_name_str = "yolo26n-pose"
 
-# Auto-detect GPU
-_device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"[AI-ENGINE] Using device: {_device}", flush=True)
+def _find_model_path(name, fallback=None):
+    if not name:
+        return fallback
+    if os.path.exists(name) and (os.path.isdir(name) or os.path.getsize(name) > 0):
+        return name
+    alt1 = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+    if os.path.exists(alt1) and (os.path.isdir(alt1) or os.path.getsize(alt1) > 0):
+        return alt1
+    alt2 = os.path.join(os.path.expanduser("~"), name)
+    if os.path.exists(alt2) and (os.path.isdir(alt2) or os.path.getsize(alt2) > 0):
+        return alt2
+    return fallback
+
+def _find_model_dir_or_pt(ov_primary, ov_secondary, pt_primary, pt_secondary):
+    for ov_name in [ov_primary, ov_secondary]:
+        p = _find_model_path(ov_name, None)
+        if p and os.path.exists(p):
+            return p, "OpenVINO"
+    for pt_name in [pt_primary, pt_secondary]:
+        p = _find_model_path(pt_name, None)
+        if p and os.path.exists(p) and (os.path.isdir(p) or os.path.getsize(p) > 0):
+            return p, "PyTorch"
+    return pt_primary, "PyTorch"
 
 def load_yolo_model():
-    global yolo_model, HAS_YOLO
+    global yolo_model, yolo_model_backend, yolo_model_name_str
     if yolo_model is not None:
         return yolo_model
     with _yolo_lock:
         if yolo_model is None:
+            ov_path, _ = _find_model_dir_or_pt("yolo26n_openvino_model", "yolov8n_openvino_model", "yolo26n.pt", "yolov8n.pt")
+            pt_path = _find_model_path("yolo26n.pt", "yolov8n.pt")
+            
+            import importlib
+            ultralytics = importlib.import_module("ultralytics")
+            YOLO = ultralytics.YOLO
             try:
-                print(f"[AI-ENGINE] Lazy loading {YOLO_MODEL_NAME}...", flush=True)
-                import importlib
-                print(f"[AI-ENGINE] Importing ultralytics...", flush=True)
-                ultralytics = importlib.import_module("ultralytics")
-                
-                # Disable ultralytics telemetry & checks
+                from ultralytics import settings
+                settings.update({'sync': False, 'check': False, 'telemetry': False})
+            except Exception:
+                pass
+            import logging
+            logging.getLogger("ultralytics").setLevel(logging.WARNING)
+
+            loaded = False
+            # Attempt 1: OpenVINO model folder
+            if ov_path and os.path.exists(ov_path) and os.path.isdir(ov_path):
                 try:
-                    from ultralytics import settings
-                    settings.update({'sync': False, 'check': False, 'telemetry': False})
-                    print("[AI-ENGINE] Ultralytics telemetry and sync checks disabled.", flush=True)
-                except Exception as se:
-                    print(f"[AI-ENGINE] Note: could not update ultralytics settings: {se}", flush=True)
+                    print(f"[AI-ENGINE] Loading OpenVINO Nano model: {ov_path}...", flush=True)
+                    m = YOLO(ov_path)
+                    _dummy = np.zeros((320, 320, 3), dtype=np.uint8)
+                    m(_dummy, imgsz=320, verbose=False)
+                    yolo_model = m
+                    yolo_model_backend = "OpenVINO (CPU)"
+                    yolo_model_name_str = os.path.basename(ov_path)
+                    loaded = True
+                    print(f"[AI-ENGINE] ✅ OpenVINO Nano model loaded successfully.", flush=True)
+                except Exception as e:
+                    print(f"[AI-ENGINE] ⚠️ OpenVINO Nano load failed ({e}), falling back to PyTorch .pt...", flush=True)
 
-                YOLO = ultralytics.YOLO
-                import logging
-                logging.getLogger("ultralytics").setLevel(logging.WARNING)
-
-                print(f"[AI-ENGINE] Initializing YOLO with {YOLO_MODEL_NAME}...", flush=True)
-                yolo_model = YOLO(YOLO_MODEL_NAME)
-                print(f"[AI-ENGINE] Moving YOLO model to {_device}...", flush=True)
+            # Attempt 2: PyTorch .pt fallback
+            if not loaded:
+                print(f"[AI-ENGINE] Loading PyTorch Nano model: {pt_path}...", flush=True)
+                m = YOLO(pt_path)
                 try:
-                    yolo_model.to(_device)
-                except Exception as te:
-                    print(f"[AI-ENGINE] Note: model.to({_device}) skipped: {te}", flush=True)
-
-                # ── Robust warm-up inference dengan fallback bertingkat ──
-                # Raspberry Pi: OpenVINO bisa crash di sini, tapi .pt harusnya OK
-                is_openvino = "openvino" in str(YOLO_MODEL_NAME).lower()
-                warmup_imgsz = 640 if is_openvino else 320
-                _dummy = np.zeros((warmup_imgsz, warmup_imgsz, 3), dtype=np.uint8)
-                print(f"[AI-ENGINE] Running warm-up inference (imgsz={warmup_imgsz})...", flush=True)
-                warmup_ok = False
-                # Attempt 1: dengan device argument
+                    _device = "cuda" if torch.cuda.is_available() else "cpu"
+                    m.to(_device)
+                except Exception:
+                    pass
+                _dummy = np.zeros((320, 320, 3), dtype=np.uint8)
                 try:
-                    yolo_model(_dummy, imgsz=warmup_imgsz, verbose=False, device=_device)
-                    warmup_ok = True
-                    print(f"[AI-ENGINE] Warm-up attempt 1 (device={_device}) SUCCESS.", flush=True)
-                except Exception as we1:
-                    print(f"[AI-ENGINE] Warm-up attempt 1 failed: {we1}", flush=True)
-                # Attempt 2: tanpa device argument
-                if not warmup_ok:
-                    try:
-                        yolo_model(_dummy, imgsz=warmup_imgsz, verbose=False)
-                        warmup_ok = True
-                        print(f"[AI-ENGINE] Warm-up attempt 2 (no device) SUCCESS.", flush=True)
-                    except Exception as we2:
-                        print(f"[AI-ENGINE] Warm-up attempt 2 failed: {we2}", flush=True)
-                # Attempt 3: imgsz lebih kecil
-                if not warmup_ok:
-                    try:
-                        _dummy2 = np.zeros((224, 224, 3), dtype=np.uint8)
-                        yolo_model(_dummy2, imgsz=224, verbose=False)
-                        warmup_ok = True
-                        print(f"[AI-ENGINE] Warm-up attempt 3 (imgsz=224) SUCCESS.", flush=True)
-                        del _dummy2
-                    except Exception as we3:
-                        print(f"[AI-ENGINE] Warm-up attempt 3 failed: {we3}", flush=True)
-                del _dummy
+                    m(_dummy, imgsz=320, verbose=False)
+                except Exception:
+                    pass
+                yolo_model = m
+                yolo_model_backend = "PyTorch (CPU)"
+                yolo_model_name_str = os.path.basename(pt_path)
+                print(f"[AI-ENGINE] ✅ PyTorch Nano model loaded successfully.", flush=True)
 
-                if warmup_ok:
-                    HAS_YOLO = True
-                    print(f"[AI-ENGINE] ✅ {YOLO_MODEL_NAME} loaded & warmed up on {_device}.", flush=True)
-                else:
-                    # Model ter-load tapi warm-up gagal semua.
-                    # Tetap set HAS_YOLO = True karena model mungkin masih bisa inferensi.
-                    # Warm-up failure ≠ inference failure.
-                    HAS_YOLO = True
-                    print(f"[AI-ENGINE] ⚠️  {YOLO_MODEL_NAME} loaded — warm-up gagal tapi model tetap dipakai.", flush=True)
-            except Exception as e:
-                import traceback
-                HAS_YOLO = False
-                print(f"[AI-ENGINE] ❌ YOLO load GAGAL - OpenCV HOG fallback aktif.", flush=True)
-                print(f"[AI-ENGINE] Error detail: {e}", flush=True)
-                print(traceback.format_exc(), flush=True)
     return yolo_model
 
 def load_yolo_heavy():
-    global yolo_model_heavy, yolo_model
+    """Load the 'heavy' detection model (yolo26s Small model).
+    Provides high accuracy for vehicle tracking (cars, motorcycles, buses, trucks)
+    and multi-class object/attribute detection.
+    """
+    global yolo_model_heavy, yolo_model_heavy_backend, yolo_model_heavy_name_str
     if yolo_model_heavy is not None:
         return yolo_model_heavy
     with _yolo_lock:
         if yolo_model_heavy is None:
+            ov_path, _ = _find_model_dir_or_pt("yolo26s_openvino_model", "yolov8s_openvino_model", "yolo26s.pt", "yolov8s.pt")
+            pt_path = _find_model_path("yolo26s.pt", "yolov8s.pt")
+
+            import importlib
+            ultralytics = importlib.import_module("ultralytics")
+            YOLO = ultralytics.YOLO
             try:
-                load_yolo_model()
-                print(f"[AI-ENGINE] Lazy loading {YOLO_MODEL_HEAVY}...", flush=True)
-                import importlib
-                ultralytics = importlib.import_module("ultralytics")
-                YOLO = ultralytics.YOLO
-                import logging
-                logging.getLogger("ultralytics").setLevel(logging.WARNING)
-                if os.path.exists(YOLO_MODEL_HEAVY):
-                    yolo_model_heavy = YOLO(YOLO_MODEL_HEAVY)
-                    try:
-                        yolo_model_heavy.to(_device)
-                    except Exception as te:
-                        print(f"[AI-ENGINE] Note: heavy model.to({_device}) skipped: {te}", flush=True)
-                    is_openvino = "openvino" in str(YOLO_MODEL_HEAVY).lower()
-                    warmup_imgsz = 640 if is_openvino else 416
-                    _dummy2 = np.zeros((warmup_imgsz, warmup_imgsz, 3), dtype=np.uint8)
-                    try:
-                        yolo_model_heavy(_dummy2, imgsz=warmup_imgsz, verbose=False, device=_device)
-                    except Exception:
-                        yolo_model_heavy(_dummy2, imgsz=warmup_imgsz, verbose=False)
-                    del _dummy2
-                    print(f"[AI-ENGINE] {YOLO_MODEL_HEAVY} loaded & warmed up on {_device}.", flush=True)
-                else:
-                    yolo_model_heavy = yolo_model  # fallback to nano if s not found
-                    print(f"[AI-ENGINE] {YOLO_MODEL_HEAVY} not found, falling back to {YOLO_MODEL_NAME} for attribute mode.", flush=True)
-            except Exception as e:
-                print(f"[AI-ENGINE] YOLO heavy load error: {e}", flush=True)
+                from ultralytics import settings
+                settings.update({'sync': False, 'check': False, 'telemetry': False})
+            except Exception:
+                pass
+
+            loaded = False
+            if ov_path and os.path.exists(ov_path) and os.path.isdir(ov_path):
+                try:
+                    print(f"[AI-ENGINE] Loading Heavy OpenVINO model (yolo26s): {ov_path}...", flush=True)
+                    m = YOLO(ov_path)
+                    _dummy = np.zeros((320, 320, 3), dtype=np.uint8)
+                    m(_dummy, imgsz=320, verbose=False)
+                    yolo_model_heavy = m
+                    yolo_model_heavy_backend = "OpenVINO (CPU)"
+                    yolo_model_heavy_name_str = os.path.basename(ov_path)
+                    loaded = True
+                    print(f"[AI-ENGINE] ✅ Heavy OpenVINO model (yolo26s) loaded successfully.", flush=True)
+                except Exception as e:
+                    print(f"[AI-ENGINE] ⚠️ Heavy OpenVINO load failed ({e}), falling back to PyTorch .pt...", flush=True)
+
+            if not loaded:
+                print(f"[AI-ENGINE] Loading Heavy PyTorch model (yolo26s): {pt_path}...", flush=True)
+                m = YOLO(pt_path)
+                try:
+                    _device = "cuda" if torch.cuda.is_available() else "cpu"
+                    m.to(_device)
+                except Exception:
+                    pass
+                _dummy = np.zeros((320, 320, 3), dtype=np.uint8)
+                try:
+                    m(_dummy, imgsz=320, verbose=False)
+                except Exception:
+                    pass
+                yolo_model_heavy = m
+                yolo_model_heavy_backend = "PyTorch (CPU)"
+                yolo_model_heavy_name_str = os.path.basename(pt_path)
+                print(f"[AI-ENGINE] ✅ Heavy PyTorch model (yolo26s) loaded successfully.", flush=True)
+
     return yolo_model_heavy
 
-# ── Face Detection & HOG Fallback Setup
+def load_yolo_pose_model():
+    global yolo_pose_model, yolo_pose_backend, yolo_pose_name_str
+    if yolo_pose_model is not None:
+        return yolo_pose_model
+    with _yolo_lock:
+        if yolo_pose_model is None:
+            ov_path, _ = _find_model_dir_or_pt("yolo26n-pose_openvino_model", "yolov8n-pose_openvino_model", "yolo26n-pose.pt", "yolov8n-pose.pt")
+            pt_path = _find_model_path("yolo26n-pose.pt", "yolov8n-pose.pt")
+            
+            import importlib
+            ultralytics = importlib.import_module("ultralytics")
+            YOLO = ultralytics.YOLO
+
+            loaded = False
+            if ov_path and os.path.exists(ov_path) and os.path.isdir(ov_path):
+                try:
+                    print(f"[AI-ENGINE] Loading Pose OpenVINO model: {ov_path}...", flush=True)
+                    m = YOLO(ov_path)
+                    _dummy = np.zeros((320, 320, 3), dtype=np.uint8)
+                    m(_dummy, imgsz=320, verbose=False)
+                    yolo_pose_model = m
+                    yolo_pose_backend = "OpenVINO (CPU)"
+                    yolo_pose_name_str = os.path.basename(ov_path)
+                    loaded = True
+                    print(f"[AI-ENGINE] ✅ Pose OpenVINO model loaded successfully.", flush=True)
+                except Exception as e:
+                    print(f"[AI-ENGINE] ⚠️ Pose OpenVINO load failed ({e}), falling back to PyTorch .pt...", flush=True)
+
+            if not loaded:
+                print(f"[AI-ENGINE] Loading Pose PyTorch model: {pt_path}...", flush=True)
+                m = YOLO(pt_path)
+                try:
+                    _device = "cuda" if torch.cuda.is_available() else "cpu"
+                    m.to(_device)
+                except Exception:
+                    pass
+                _dummy = np.zeros((320, 320, 3), dtype=np.uint8)
+                try:
+                    m(_dummy, imgsz=320, verbose=False)
+                except Exception:
+                    pass
+                yolo_pose_model = m
+                yolo_pose_backend = "PyTorch (CPU)"
+                yolo_pose_name_str = os.path.basename(pt_path)
+                print(f"[AI-ENGINE] ✅ Pose PyTorch model loaded successfully.", flush=True)
+
+    return yolo_pose_model
+
+# ── Cascade & HOG Fallback
 try:
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-except Exception as e:
+except Exception:
     face_cascade = None
 
 try:
@@ -196,9 +253,6 @@ try:
 except Exception:
     hog = None
 
-_yolo_lock = threading.RLock()
-
-# COCO indices
 COCO_PERSON   = 0
 COCO_HANDBAG  = 26
 COCO_BACKPACK = 24
@@ -206,21 +260,12 @@ COCO_SUITCASE = 28
 BAG_CLASSES   = {COCO_HANDBAG, COCO_BACKPACK, COCO_SUITCASE}
 
 COCO_CLASS_NAMES = {
-    0: "Orang",
-    1: "Sepeda",
-    2: "Mobil",
-    3: "Motor",
-    5: "Bus",
-    7: "Truk",
-    24: "Tas",
-    26: "Tas",
-    28: "Tas",
-    56: "Kursi",
-    63: "Laptop"
+    0: "Orang", 1: "Sepeda", 2: "Mobil", 3: "Motor", 5: "Bus", 7: "Truk",
+    24: "Tas", 26: "Tas", 28: "Tas", 56: "Kursi", 63: "Laptop"
 }
 
 CLASS_COLORS = {
-    0: (120, 255, 0),     # Orang (bright green)
+    0: (120, 255, 0),     # Orang
     1: (255, 200, 0),     # Sepeda
     2: (0, 165, 255),     # Mobil
     3: (0, 90, 255),      # Motor
@@ -234,132 +279,64 @@ CLASS_COLORS = {
 }
 
 COCO_TRANSLATIONS = {
-    "person": "Orang",
-    "bicycle": "Sepeda",
-    "car": "Mobil",
-    "motorcycle": "Motor",
-    "airplane": "Pesawat",
-    "bus": "Bus",
-    "train": "Kereta",
-    "truck": "Truk",
-    "boat": "Perahu",
-    "traffic light": "Lampu Lalu Lintas",
-    "fire hydrant": "Hydrant Kebakaran",
-    "stop sign": "Rambu Stop",
-    "parking meter": "Meteran Parkir",
-    "bench": "Bangku",
-    "bird": "Burung",
-    "cat": "Kucing",
-    "dog": "Anjing",
-    "horse": "Kuda",
-    "sheep": "Domba",
-    "cow": "Sapi",
-    "elephant": "Gajah",
-    "bear": "Beruang",
-    "zebra": "Zebra",
-    "giraffe": "Jerapah",
-    "backpack": "Backpack",
-    "umbrella": "Payung",
-    "handbag": "Tote bag",
-    "tie": "Dasi",
-    "suitcase": "Koper",
-    "frisbee": "Frisbee",
-    "skis": "Ski",
-    "snowboard": "Papan Salju",
-    "sports ball": "Bola Olahraga",
-    "kite": "Layang-layang",
-    "baseball bat": "Pemukul Bisbol",
-    "baseball glove": "Sarung Tangan Bisbol",
-    "skateboard": "Skateboard",
-    "surfboard": "Papan Seluncur",
-    "tennis racket": "Raket Tenis",
-    "bottle": "Botol",
-    "wine glass": "Gelas Anggur",
-    "cup": "Cangkir",
-    "fork": "Garpu",
-    "knife": "Pisau",
-    "spoon": "Sendok",
-    "bowl": "Mangkuk",
-    "banana": "Pisang",
-    "apple": "Apel",
-    "sandwich": "Sandwich",
-    "orange": "Jeruk",
-    "broccoli": "Brokoli",
-    "carrot": "Wortel",
-    "hot dog": "Hot Dog",
-    "pizza": "Pizza",
-    "donut": "Donat",
-    "cake": "Kue",
-    "chair": "Kursi",
-    "couch": "Sofa",
-    "potted plant": "Tanaman Pot",
-    "bed": "Kasur",
-    "dining table": "Meja Makan",
-    "toilet": "Toilet",
-    "tv": "TV",
-    "laptop": "Laptop",
-    "mouse": "Mouse",
-    "remote": "Remote",
-    "keyboard": "Keyboard",
-    "cell phone": "HP",
-    "microwave": "Microwave",
-    "oven": "Oven",
-    "toaster": "Pemanggang Roti",
-    "sink": "Wastafel",
-    "refrigerator": "Kulkas",
-    "book": "Buku",
-    "clock": "Jam",
-    "vase": "Vas",
-    "scissors": "Gunting",
-    "teddy bear": "Boneka Beruang",
-    "hair drier": "Pengering Rambut",
-    "toothbrush": "Sikat Gigi"
+    "person": "Orang", "bicycle": "Sepeda", "car": "Mobil", "motorcycle": "Motor",
+    "airplane": "Pesawat", "bus": "Bus", "train": "Kereta", "truck": "Truk", "boat": "Perahu",
+    "backpack": "Tas", "umbrella": "Payung", "handbag": "Tas", "tie": "Dasi", "suitcase": "Tas",
+    "chair": "Kursi", "laptop": "Laptop", "cell phone": "HP"
 }
 
 def get_class_name(cls_id):
-    if not HAS_YOLO or yolo_model is None:
+    active_m = yolo_model_heavy if yolo_model_heavy is not None else yolo_model
+    if active_m is None or not hasattr(active_m, "names"):
         return COCO_CLASS_NAMES.get(cls_id, "Objek")
-    english_name = yolo_model.names.get(cls_id, "object")
+    english_name = active_m.names.get(cls_id, "object")
     return COCO_TRANSLATIONS.get(english_name.lower(), english_name.capitalize())
 
 def get_class_color(cls_id):
     if cls_id in CLASS_COLORS:
         return CLASS_COLORS[cls_id]
     state_rand = np.random.RandomState(cls_id)
-    color = tuple(int(x) for x in state_rand.randint(50, 230, size=3))
-    return color
+    return tuple(int(x) for x in state_rand.randint(50, 230, size=3))
 
 def get_dynamic_font_params(frame_height):
-    scale = max(0.8, min(1.25, frame_height / 720.0 * 0.9))
+    scale = max(0.7, min(1.2, frame_height / 720.0 * 0.85))
     thickness = 2 if scale < 1.0 else 3
     return scale, thickness
 
 def get_dynamic_box_thickness(frame_height):
     return 2 if frame_height < 900 else 3
 
+import re
+
+def clean_ascii_for_cv2(text):
+    if not text:
+        return ""
+    cleaned = re.sub(r'[^\x00-\x7F]+', '', text).strip()
+    return cleaned if cleaned else text
+
 def draw_text_with_bg(frame, text, org, color=(255, 255, 255), bg_color=(0, 0, 0)):
     h, w = frame.shape[:2]
     font_scale, thickness = get_dynamic_font_params(h)
-    (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+    cv2_text = clean_ascii_for_cv2(text)
+    (tw, th), baseline = cv2.getTextSize(cv2_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
     x, y = org
-    pad_x = 8
-    pad_y = 8
+    pad_x, pad_y = 6, 6
     bx1 = max(0, x - pad_x)
     bx2 = min(w, x + tw + pad_x)
     by1 = max(0, y - th - pad_y)
     by2 = min(h, y + baseline + pad_y - 2)
     cv2.rectangle(frame, (bx1, by1), (bx2, by2), bg_color, -1)
-    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness, cv2.LINE_AA)
+    cv2.putText(frame, cv2_text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness, cv2.LINE_AA)
 
 def draw_labeled_box(frame, x1, y1, x2, y2, label, box_color, text_color=(255, 255, 255), box_thickness=None):
     h, w = frame.shape[:2]
     font_scale, thickness = get_dynamic_font_params(h)
     draw_thickness = box_thickness if box_thickness is not None else get_dynamic_box_thickness(h)
-    pad_x = 8
-    pad_y = 8
+    pad_x, pad_y = 6, 6
     cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, draw_thickness)
     if label:
-        (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+        cv2_label = clean_ascii_for_cv2(label)
+        (tw, th), baseline = cv2.getTextSize(cv2_label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
         if y1 - th - (pad_y * 2) > 0:
             bx1 = max(0, x1)
             bx2 = min(w, x1 + tw + (pad_x * 2))
@@ -375,10 +352,9 @@ def draw_labeled_box(frame, x1, y1, x2, y2, label, box_color, text_color=(255, 2
             tx = x1 + pad_x
             ty = y1 + th + pad_y - 1
         cv2.rectangle(frame, (bx1, by1), (bx2, by2), box_color, -1)
-        cv2.putText(frame, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, cv2.LINE_AA)
+        cv2.putText(frame, cv2_label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, cv2.LINE_AA)
 
-
-# ── SQLite Database Setup for Drowsiness logs
+# ── SQLite Setup for Drowsiness Logs
 def init_db():
     try:
         conn = sqlite3.connect("drowsiness_logs.db")
@@ -393,7 +369,6 @@ def init_db():
         """)
         conn.commit()
         conn.close()
-        print("[AI-ENGINE] SQLite database initialized OK.", flush=True)
     except Exception as e:
         print(f"[AI-ENGINE] Database init error: {e}", flush=True)
 
@@ -407,10 +382,8 @@ def log_drowsiness(cam_id, ear):
         cursor.execute("INSERT INTO drowsiness_logs (cam_id, timestamp, ear) VALUES (?, ?, ?)", (cam_id, timestamp, ear))
         conn.commit()
         conn.close()
-        print(f"[AI-ENGINE] Logged drowsiness for camera_{cam_id} (EAR: {ear:.3f})", flush=True)
     except Exception as e:
         print(f"[AI-ENGINE] Logging error: {e}", flush=True)
-
 
 def calculate_ear(eye_landmarks, landmarks, w, h):
     coords = []
@@ -425,8 +398,7 @@ def calculate_ear(eye_landmarks, landmarks, w, h):
         return 0.0
     return (val_a + val_b) / (2.0 * val_c)
 
-
-# ── MediaPipe Setup using new Tasks API
+# ── MediaPipe Tasks API for Face Landmarker (Drowsiness Detection)
 HAS_MEDIAPIPE = True
 landmarker_instance = None
 mp_Image = None
@@ -442,10 +414,8 @@ def load_mediapipe():
                 print(f"[AI-ENGINE] Lazy loading MediaPipe FaceLandmarker...", flush=True)
                 model_path = "face_landmarker.task"
                 if not os.path.exists(model_path):
-                    print("[AI-ENGINE] Downloading face_landmarker.task model...", flush=True)
                     url = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
                     urllib.request.urlretrieve(url, model_path)
-                    print("[AI-ENGINE] Download complete.", flush=True)
                     
                 import mediapipe as mp
                 from mediapipe.tasks import python
@@ -470,110 +440,47 @@ def load_mediapipe():
                 print(f"[AI-ENGINE] MediaPipe Face Mesh load error: {e}", flush=True)
     return landmarker_instance
 
-
-# ── YOLO Pose Setup
-HAS_POSE = True
-yolo_pose_model = None
-POSE_MODEL_NAME = ("yolov8n-pose_openvino_model" if os.path.exists("yolov8n-pose_openvino_model") else "yolov8n-pose.pt") if _use_openvino else "yolov8n-pose.pt"
-
-def load_yolo_pose_model():
-    global yolo_pose_model, HAS_POSE, yolo_model
-    if yolo_pose_model is not None:
-        return yolo_pose_model
-    with _yolo_lock:
-        if yolo_pose_model is None:
-            try:
-                load_yolo_model()
-                print(f"[AI-ENGINE] Lazy loading YOLO Pose model...", flush=True)
-                import importlib
-                ultralytics = importlib.import_module("ultralytics")
-                YOLO = ultralytics.YOLO
-                
-                yolo_pose_model = YOLO(POSE_MODEL_NAME)
-                try:
-                    yolo_pose_model.to(_device)
-                except Exception as te:
-                    print(f"[AI-ENGINE] Note: pose model.to({_device}) skipped: {te}", flush=True)
-                is_openvino = "openvino" in str(POSE_MODEL_NAME).lower()
-                warmup_imgsz = 640 if is_openvino else 320
-                _dummy = np.zeros((warmup_imgsz, warmup_imgsz, 3), dtype=np.uint8)
-                try:
-                    yolo_pose_model(_dummy, imgsz=warmup_imgsz, verbose=False, device=_device)
-                except Exception:
-                    yolo_pose_model(_dummy, imgsz=warmup_imgsz, verbose=False)
-                del _dummy
-                HAS_POSE = True
-                print(f"[AI-ENGINE] {POSE_MODEL_NAME} loaded & warmed up on {_device}.", flush=True)
-            except Exception as e:
-                HAS_POSE = False
-                print(f"[AI-ENGINE] Pose model load error: {e}", flush=True)
-    return yolo_pose_model
-
-
-def _nms_rects(rects, overlap_thresh=0.4):
-    if len(rects) == 0:
-        return []
-    boxes = np.array([[x, y, x+w, y+h] for (x, y, w, h) in rects], dtype=float)
-    x1, y1, x2, y2 = boxes[:,0], boxes[:,1], boxes[:,2], boxes[:,3]
-    areas = (x2-x1+1)*(y2-y1+1)
-    order = areas.argsort()[::-1]
-    keep = []
-    while order.size > 0:
-        i = order[0]; keep.append(i)
-        xx1=np.maximum(x1[i],x1[order[1:]]); yy1=np.maximum(y1[i],y1[order[1:]])
-        xx2=np.minimum(x2[i],x2[order[1:]]); yy2=np.minimum(y2[i],y2[order[1:]])
-        iou = np.maximum(0.,xx2-xx1+1)*np.maximum(0.,yy2-yy1+1)
-        iou = iou/(areas[i]+areas[order[1:]]-iou)
-        order = order[np.where(iou<=overlap_thresh)[0]+1]
-    return [rects[i] for i in keep]
-
-
 def iou_overlap(b1, b2):
-    ix1=max(b1[0],b2[0]); iy1=max(b1[1],b2[1])
-    ix2=min(b1[2],b2[2]); iy2=min(b1[3],b2[3])
-    iw=max(0,ix2-ix1); ih=max(0,iy2-iy1)
-    inter=iw*ih
-    if inter==0: return 0.0
-    return inter/float((b1[2]-b1[0])*(b1[3]-b1[1])+(b2[2]-b2[0])*(b2[3]-b2[1])-inter)
+    ix1, iy1 = max(b1[0], b2[0]), max(b1[1], b2[1])
+    ix2, iy2 = min(b1[2], b2[2]), min(b1[3], b2[3])
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    inter = iw * ih
+    if inter == 0: return 0.0
+    area1 = (b1[2] - b1[0]) * (b1[3] - b1[1])
+    area2 = (b2[2] - b2[0]) * (b2[3] - b2[1])
+    denom = area1 + area2 - inter
+    return inter / float(denom) if denom > 0 else 0.0
 
-
-def run_yolo(frame, target_classes, model=None):
-    """Run YOLO inference. Uses yolo_model (nano) by default; pass yolo_model_heavy for attribute mode."""
+def run_yolo(frame, target_classes, model=None, imgsz=320):
+    """Run YOLO inference on frame with target imgsz, with automatic 640 fallback for static OpenVINO models."""
     detections = []
     active_model = model if model is not None else yolo_model
-    if not HAS_YOLO or active_model is None:
+    if active_model is None:
         return detections
     try:
-        is_openvino = False
-        try:
-            is_openvino = "openvino" in str(getattr(active_model, "ckpt_path", "") or "").lower()
-        except Exception:
-            pass
-        # Dynamic imgsz on CPU, but OpenVINO models must use 640 to prevent size mismatch
-        if is_openvino or _device == "cuda":
-            yolo_imgsz = 640
-        else:
-            yolo_imgsz = 416 if active_model == yolo_model_heavy else 320
+        results = []
         with _yolo_lock:
             with torch.no_grad():
-                if target_classes is not None:
-                    results = active_model(frame, imgsz=yolo_imgsz, verbose=False, conf=0.25,
-                                           classes=list(target_classes), device=_device)
-                else:
-                    results = active_model(frame, imgsz=yolo_imgsz, verbose=False, conf=0.25,
-                                           device=_device)
+                try:
+                    if target_classes is not None:
+                        results = active_model(frame, imgsz=imgsz, verbose=False, conf=0.25, classes=list(target_classes))
+                    else:
+                        results = active_model(frame, imgsz=imgsz, verbose=False, conf=0.25)
+                except Exception:
+                    if target_classes is not None:
+                        results = active_model(frame, imgsz=640, verbose=False, conf=0.25, classes=list(target_classes))
+                    else:
+                        results = active_model(frame, imgsz=640, verbose=False, conf=0.25)
         for r in results:
             for box in r.boxes:
                 cls  = int(box.cls[0])
                 conf = float(box.conf[0])
                 if conf < 0.25: continue
-                x1,y1,x2,y2 = map(int, box.xyxy[0].tolist())
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 detections.append((x1, y1, x2, y2, cls, conf))
     except Exception as e:
         print(f"[AI-ENGINE] YOLO error: {e}", flush=True)
     return detections
-
-
 
 # ── PyTorch Human Attribute Color Detection
 def get_clothing_color_pytorch(crop_bgr):
@@ -618,98 +525,285 @@ def get_clothing_color_pytorch(crop_bgr):
         best_name = max(counts, key=counts.get)
         confidence = int((counts[best_name] / total_px) * 100)
         return best_name, confidence
-    except Exception as e:
-        print(f"[AI-ENGINE] Error in color classification: {e}", flush=True)
+    except Exception:
         return "Abu-abu", 50
 
+# ── Face Recognition Engine (YuNet + SFace)
+YUNET_MODEL_PATH = "face_detection_yunet.onnx"
+SFACE_MODEL_PATH = "face_recognition_sface.onnx"
 
-# ── Mode Handlers
+_yunet_detector = None
+_sface_recognizer = None
+_registered_faces_cache = []
 
-def process_none(frame, meta):
-    return frame, meta
+def init_face_recognition():
+    global _yunet_detector, _sface_recognizer
+    try:
+        if not os.path.exists(YUNET_MODEL_PATH):
+            yunet_url = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+            urllib.request.urlretrieve(yunet_url, YUNET_MODEL_PATH)
+        if not os.path.exists(SFACE_MODEL_PATH):
+            sface_url = "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
+            urllib.request.urlretrieve(sface_url, SFACE_MODEL_PATH)
+            
+        _yunet_detector = cv2.FaceDetectorYN.create(YUNET_MODEL_PATH, "", (320, 320), 0.6, 0.3, 5000)
+        _sface_recognizer = cv2.FaceRecognizerSF.create(SFACE_MODEL_PATH, "")
+        print("[AI-ENGINE] YuNet & SFace Face Recognition engine initialized OK.", flush=True)
+    except Exception as e:
+        print(f"[AI-ENGINE] Warning initializing YuNet/SFace: {e}", flush=True)
 
+    init_face_db()
+    reload_registered_faces_cache()
 
-def process_face(frame, persons, meta, cached_faces=None):
+def init_face_db():
+    conn = sqlite3.connect("face_database.db")
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS registered_faces (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            embedding BLOB NOT NULL,
+            image_path TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def reload_registered_faces_cache():
+    global _registered_faces_cache
+    cache = []
+    try:
+        conn = sqlite3.connect("face_database.db")
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, embedding, image_path, created_at FROM registered_faces")
+        rows = cur.fetchall()
+        for row in rows:
+            face_id, name, emb_blob, img_path, created_at = row
+            emb_arr = np.frombuffer(emb_blob, dtype=np.float32)
+            cache.append({
+                "id": face_id,
+                "name": name,
+                "embedding": emb_arr,
+                "image_path": img_path,
+                "created_at": str(created_at)
+            })
+        conn.close()
+    except Exception as e:
+        print(f"[AI-ENGINE] Error reloading face cache: {e}", flush=True)
+    _registered_faces_cache = cache
+
+def extract_face_embedding(img_bgr):
+    if img_bgr is None or img_bgr.size == 0 or _sface_recognizer is None:
+        return None, None
+    h, w = img_bgr.shape[:2]
+    if _yunet_detector is not None:
+        _yunet_detector.setInputSize((w, h))
+        _, faces = _yunet_detector.detect(img_bgr)
+        if faces is not None and len(faces) > 0:
+            face = faces[0]
+            try:
+                aligned_face = _sface_recognizer.alignCrop(img_bgr, face)
+                feat = _sface_recognizer.feature(aligned_face)
+                return feat.flatten(), aligned_face
+            except Exception: pass
+    if face_cascade is not None:
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        dets = face_cascade.detectMultiScale(gray, 1.1, 4, minSize=(40, 40))
+        if len(dets) > 0:
+            fx, fy, fw, fh = dets[0]
+            dummy_face = np.array([[fx, fy, fw, fh, fx+fw/3, fy+fh/3, fx+2*fw/3, fy+fh/3, fx+fw/2, fy+fh/2, fx+fw/3, fy+2*fh/3, fx+2*fw/3, fy+2*fh/3, 1.0]], dtype=np.float32)
+            try:
+                aligned_face = _sface_recognizer.alignCrop(img_bgr, dummy_face[0])
+                feat = _sface_recognizer.feature(aligned_face)
+                return feat.flatten(), aligned_face
+            except Exception: pass
+    return None, None
+
+def register_face(name, image_bytes_list):
+    os.makedirs("uploads/faces", exist_ok=True)
+    saved_records = []
+    conn = sqlite3.connect("face_database.db")
+    cur = conn.cursor()
+    
+    for idx, img_bytes in enumerate(image_bytes_list):
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img_bgr is None: continue
+        
+        emb, aligned_crop = extract_face_embedding(img_bgr)
+        if emb is None: continue
+            
+        filename = f"face_{int(time.time()*1000)}_{idx}.jpg"
+        save_path = os.path.join("uploads", "faces", filename)
+        save_img = aligned_crop if aligned_crop is not None else img_bgr
+        cv2.imwrite(save_path, save_img)
+        
+        rel_path = f"/uploads/faces/{filename}"
+        emb_bytes = emb.astype(np.float32).tobytes()
+        cur.execute("INSERT INTO registered_faces (name, embedding, image_path) VALUES (?, ?, ?)",
+                    (name, emb_bytes, rel_path))
+        saved_records.append(cur.lastrowid)
+        
+    conn.commit()
+    conn.close()
+    reload_registered_faces_cache()
+    return len(saved_records)
+
+def get_registered_faces_list():
+    conn = sqlite3.connect("face_database.db")
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, image_path, created_at FROM registered_faces ORDER BY id DESC")
+    rows = cur.fetchall()
+    conn.close()
+    return [{"id": r[0], "name": r[1], "image_path": r[2], "created_at": str(r[3])} for r in rows]
+
+def delete_registered_face(face_id):
+    conn = sqlite3.connect("face_database.db")
+    cur = conn.cursor()
+    cur.execute("SELECT image_path FROM registered_faces WHERE id = ?", (face_id,))
+    row = cur.fetchone()
+    if row:
+        img_path = row[0]
+        full_path = os.path.join(".", img_path.lstrip("/"))
+        if os.path.exists(full_path):
+            try: os.remove(full_path)
+            except Exception: pass
+    cur.execute("DELETE FROM registered_faces WHERE id = ?", (face_id,))
+    conn.commit()
+    conn.close()
+    reload_registered_faces_cache()
+    return True
+
+def match_face_embedding(feat):
+    if feat is None or len(_registered_faces_cache) == 0 or _sface_recognizer is None:
+        return "Tidak Dikenal", 0.0
+    
+    best_name = "Tidak Dikenal"
+    best_score = 0.0
+    feat_norm = np.linalg.norm(feat)
+    if feat_norm == 0:
+        return "Tidak Dikenal", 0.0
+    
+    for record in _registered_faces_cache:
+        emb = record["embedding"]
+        emb_norm = np.linalg.norm(emb)
+        if emb_norm == 0: continue
+        sim = float(np.dot(feat, emb) / (feat_norm * emb_norm))
+        if sim > best_score:
+            best_score = sim
+            best_name = record["name"]
+            
+    if best_score >= 0.38:
+        return best_name, best_score
+    return "Tidak Dikenal", best_score
+
+# Initialize Face Recognition Engine
+init_face_recognition()
+
+# ── MODE PROCESSORS
+
+def process_face(frame, state, meta, cached_faces=None):
+    """
+    Face Recognition with Track-ID & Bounding-Box Caching.
+    Runs Face Detection (YuNet/Cascade) every frame, but caches SFace feature recognition
+    results per face box to avoid running embedding extraction on every frame for the same face.
+    """
     h, w = frame.shape[:2]
-    out = frame.copy()
+    out = frame
     faces = []
+    now = time.time()
+    
     if cached_faces is not None:
         faces = cached_faces
     else:
-        if face_cascade is not None:
-            gray = cv2.equalizeHist(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+        if _yunet_detector is not None:
+            _yunet_detector.setInputSize((w, h))
+            _, det_faces = _yunet_detector.detect(frame)
+            if det_faces is not None:
+                for f in det_faces:
+                    fx, fy, fw, fh = int(f[0]), int(f[1]), int(f[2]), int(f[3])
+                    faces.append((max(0, fx), max(0, fy), max(1, fw), max(1, fh)))
+        if not faces and face_cascade is not None:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             try:
                 det = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40,40))
                 for (fx,fy,fw,fh) in det:
                     faces.append((fx,fy,fw,fh))
             except Exception: pass
-            for (px,py,pw,ph,_) in persons:
-                crop = gray[max(0,py):max(0,py+int(ph*0.42)), max(0,px):max(0,px+pw)]
-                if crop.size < 4: continue
-                try:
-                    dc = face_cascade.detectMultiScale(crop, scaleFactor=1.1, minNeighbors=4, minSize=(20,20))
-                    for (fx,fy,fw,fh) in dc:
-                        faces.append((px+fx,py+fy,fw,fh))
-                except Exception: pass
-            faces = _nms_rects(faces, 0.4)
 
     meta["faces"] = faces
     meta["face_detected"] = len(faces) > 0
+    
+    face_rec_cache = state.setdefault("face_recognition_cache", [])
+    updated_cache = []
+    
     if faces:
-        meta["face_name"] = "Tidak Dikenal"
-        for (fx,fy,fw,fh) in faces:
-            draw_labeled_box(out, fx, fy, fx+fw, fy+fh, "Tidak Dikenal", (0, 120, 255), (255, 255, 255), 2)
-        for (px,py,pw,ph,_) in persons:
-            cv2.rectangle(out, (px, py), (px+pw, py+ph), (0, 200, 60), 2)
+        detected_names = []
+        for face_tuple in faces:
+            fx, fy, fw, fh = face_tuple[0], face_tuple[1], face_tuple[2], face_tuple[3]
+            box_curr = [fx, fy, fx + fw, fy + fh]
+            
+            name = None
+            score = 0.0
+            
+            # Check spatial IoU overlap with previous cached faces (Track-ID caching)
+            best_iou = 0.0
+            best_match_idx = -1
+            for idx, c_item in enumerate(face_rec_cache):
+                c_box = c_item["box"]
+                overlap = iou_overlap(box_curr, c_box)
+                if overlap > best_iou:
+                    best_iou = overlap
+                    best_match_idx = idx
+                    
+            if best_iou >= 0.35 and best_match_idx != -1 and (now - face_rec_cache[best_match_idx]["time"]) < 3.0:
+                # Reuse cached recognition result for this tracked face
+                name = face_rec_cache[best_match_idx]["name"]
+                score = face_rec_cache[best_match_idx]["score"]
+                updated_cache.append({
+                    "box": box_curr,
+                    "name": name,
+                    "score": score,
+                    "time": now
+                })
+            else:
+                # Run SFace feature extraction & database matching ONLY for new or un-cached faces
+                crop = frame[max(0,fy):min(h,fy+fh), max(0,fx):min(w,fx+fw)]
+                if crop.size > 100:
+                    emb, _ = extract_face_embedding(crop)
+                    if emb is not None:
+                        name, score = match_face_embedding(emb)
+                if not name:
+                    name = "Tidak Dikenal"
+                    score = 0.0
+                    
+                updated_cache.append({
+                    "box": box_curr,
+                    "name": name,
+                    "score": score,
+                    "time": now
+                })
+                
+            detected_names.append(name)
+            box_color = (0, 220, 0) if name != "Tidak Dikenal" else (0, 120, 255)
+            draw_labeled_box(out, fx, fy, fx+fw, fy+fh, name, box_color, (255, 255, 255), 2)
+            
+        state["face_recognition_cache"] = updated_cache
+        meta["face_name"] = ", ".join(set(detected_names))
+        meta["people_count"] = len(faces)
     else:
+        state["face_recognition_cache"] = []
         meta["face_name"] = "None"
+        meta["people_count"] = 0
         draw_text_with_bg(out, "Tidak ada wajah terdeteksi", (10, h - 25), (100, 100, 255), (0, 0, 0))
     
-    draw_text_with_bg(out, f"Orang: {len(persons)}", (10, 60), (255, 255, 100), (0, 0, 0))
     return out, meta
-
-
-
-def detect_head_attributes_pytorch(head_crop):
-    if head_crop is None or head_crop.size == 0:
-        return "Tidak", "Tidak"
-    try:
-        gray = cv2.cvtColor(head_crop, cv2.COLOR_BGR2GRAY)
-        h_h, h_w = gray.shape[:2]
-        
-        # Sunglasses detection: middle eyes region
-        eye_y1 = int(h_h * 0.40)
-        eye_y2 = int(h_h * 0.75)
-        eye_x1 = int(h_w * 0.25)
-        eye_x2 = int(h_w * 0.75)
-        
-        eye_region = gray[eye_y1:eye_y2, eye_x1:eye_x2]
-        has_glasses = "Tidak"
-        if eye_region.size > 0:
-            avg_val = float(np.mean(eye_region))
-            if avg_val < 60:
-                has_glasses = "Ya"
-                
-        # Hat detection: top hair area
-        top_y1 = 0
-        top_y2 = int(h_h * 0.45)
-        top_region = head_crop[top_y1:top_y2, :]
-        has_hat = "Tidak"
-        if top_region.size > 0:
-            hsv = cv2.cvtColor(top_region, cv2.COLOR_BGR2HSV)
-            avg_s = float(np.mean(hsv[:,:,1]))
-            avg_v = float(np.mean(hsv[:,:,2]))
-            if avg_s > 65 or avg_v < 40 or avg_v > 220:
-                has_hat = "Ya"
-                
-        return has_hat, has_glasses
-    except Exception:
-        return "Tidak", "Tidak"
 
 
 def process_attribute(frame, persons, detections, bags_raw, meta, cached_colors=None):
     h, w = frame.shape[:2]
-    out = frame.copy()
+    out = frame
     person_color = (0, 165, 255)
     attr_threshold = 40
     object_counts = {}
@@ -739,30 +833,16 @@ def process_attribute(frame, persons, detections, bags_raw, meta, cached_colors=
         px2 = min(w, px + pw)
         py2 = min(h, py + ph)
         
-        # Check aspect ratio for body visibility (detect sitting or occlusion)
         aspect_ratio = ph / pw if pw > 0 else 0
         baju_visible = True
         celana_visible = True
+        if aspect_ratio < 0.9: celana_visible = False
+        if aspect_ratio < 0.4: baju_visible = False
 
-        if aspect_ratio < 0.9:
-            celana_visible = False
-        if aspect_ratio < 0.4:
-            baju_visible = False
-
-        head_y1 = max(0, py)
-        head_y2 = min(h, py + int(ph * 0.15))
-        head_x1 = max(0, px)
-        head_x2 = px2
-
-        ux1 = max(0, px)
-        ux2 = px2
-        uy1 = max(0, py + int(ph * 0.15))
-        uy2 = min(h, py + int(ph * 0.50))
-
-        lx1 = max(0, px)
-        lx2 = px2
-        ly1 = max(0, py + int(ph * 0.55))
-        ly2 = min(h, py + int(ph * 0.90))
+        ux1, ux2 = max(0, px), px2
+        uy1, uy2 = max(0, py + int(ph * 0.15)), min(h, py + int(ph * 0.50))
+        lx1, lx2 = max(0, px), px2
+        ly1, ly2 = max(0, py + int(ph * 0.55)), min(h, py + int(ph * 0.90))
 
         upper_crop = frame[uy1:uy2, ux1:ux2]
         lower_crop = frame[ly1:ly2, lx1:lx2]
@@ -770,15 +850,8 @@ def process_attribute(frame, persons, detections, bags_raw, meta, cached_colors=
         if cached_colors is not None and idx < len(cached_colors):
             top_color, top_conf, bottom_color, bottom_conf, unique_bags = cached_colors[idx]
         else:
-            if baju_visible and upper_crop.size > 0:
-                top_color, top_conf = get_clothing_color_pytorch(upper_crop)
-            else:
-                top_color, top_conf = "Tidak Diketahui", 0
-                
-            if celana_visible and lower_crop.size > 0:
-                bottom_color, bottom_conf = get_clothing_color_pytorch(lower_crop)
-            else:
-                bottom_color, bottom_conf = "Tidak Diketahui", 0
+            top_color, top_conf = get_clothing_color_pytorch(upper_crop) if baju_visible and upper_crop.size > 0 else ("Tidak Diketahui", 0)
+            bottom_color, bottom_conf = get_clothing_color_pytorch(lower_crop) if celana_visible and lower_crop.size > 0 else ("Tidak Diketahui", 0)
 
             associated_bags = []
             person_box = [px, py, px2, py2]
@@ -786,8 +859,7 @@ def process_attribute(frame, persons, detections, bags_raw, meta, cached_colors=
                 bx1, by1, bx2, by2 = bag["bbox"]
                 bcx = (bx1 + bx2) // 2
                 bcy = (by1 + by2) // 2
-                if (iou_overlap(person_box, [bx1, by1, bx2, by2]) > 0.05
-                        or (px - 20 <= bcx <= px2 + 20 and py - 20 <= bcy <= py2 + 20)):
+                if (iou_overlap(person_box, [bx1, by1, bx2, by2]) > 0.05 or (px - 20 <= bcx <= px2 + 20 and py - 20 <= bcy <= py2 + 20)):
                     associated_bags.append(bag["name"])
             unique_bags = list(dict.fromkeys(associated_bags))
 
@@ -796,7 +868,6 @@ def process_attribute(frame, persons, detections, bags_raw, meta, cached_colors=
         person_label = f"Orang: {int(conf * 100)}%"
         draw_labeled_box(out, px, py, px2, py2, person_label, person_color, (255, 255, 255))
 
-        # Calculate combined confidence (person detection certainty * color similarity)
         top_combined_conf = int(conf * top_conf) if baju_visible else 0
         bottom_combined_conf = int(conf * bottom_conf) if celana_visible else 0
 
@@ -815,18 +886,13 @@ def process_attribute(frame, persons, detections, bags_raw, meta, cached_colors=
             person_attrs.append(f"Membawa {', '.join(unique_bags)}")
 
         person_entry = {
-            "id": idx + 1,
-            "class": "Orang",
-            "conf": round(float(conf), 2),
-            "attributes": person_attrs
+            "id": idx + 1, "class": "Orang", "conf": round(float(conf), 2), "attributes": person_attrs
         }
         person_entries.append(person_entry)
         add_detected_object("Orang", conf, person_attrs)
 
     for (x1, y1, x2, y2, cls, conf) in detections:
-        if cls == COCO_PERSON:
-            continue
-
+        if cls == COCO_PERSON: continue
         disp_name = get_class_name(cls)
         draw_color = person_color if cls in BAG_CLASSES else get_class_color(cls)
         label = f"{disp_name}: {int(conf * 100)}%"
@@ -841,109 +907,108 @@ def process_attribute(frame, persons, detections, bags_raw, meta, cached_colors=
     return out, meta
 
 
-def process_sop(cam_id, frame, persons, state, meta):
+VEHICLE_CLASS_MAP = {
+    0: "Orang", 1: "Sepeda", 2: "Mobil", 3: "Motor", 5: "Bus", 7: "Truk"
+}
+
+def process_vehicle_tracking(frame, infer_fr, scale, state, meta, cached_data=None):
+    """Single-pass vehicle tracking using YOLO26s OpenVINO / PyTorch fallback with ByteTrack."""
     h, w = frame.shape[:2]
-    out = frame.copy()
-    now = time.time()
+    out = frame
     
-    rx1,ry1 = int(w*0.3),int(h*0.3)
-    rx2,ry2 = int(w*0.7),int(h*0.7)
+    if "seen_vehicle_track_ids" not in state:
+        state["seen_vehicle_track_ids"] = {
+            "Mobil": set(), "Motor": set(), "Truk": set(), "Bus": set(), "Sepeda": set(), "Orang": set()
+        }
+    seen_ids = state["seen_vehicle_track_ids"]
     
-    in_roi  = any(rx1<=px+pw//2<=rx2 and ry1<=py+ph//2<=ry2 for (px,py,pw,ph,_) in persons)
-    ts = state.setdefault("sop_timer", {"active":False,"start_time":0.0,"duration":0.0})
+    current_in_frame = {
+        "Mobil": 0, "Motor": 0, "Truk": 0, "Bus": 0, "Sepeda": 0, "Orang": 0
+    }
     
-    if in_roi:
-        if not ts["active"]:
-            ts.update({"active":True,"start_time":now,"duration":0.0})
-        else:
-            ts["duration"] = now-ts["start_time"]
+    active_model = load_yolo_heavy()
+    tracked_objects = []
+    
+    if cached_data is not None:
+        tracked_objects = cached_data
     else:
-        ts.update({"active":False,"duration":0.0})
-        
-    dur  = ts["duration"]
-    viol = dur > 5.0
-    rc   = (0,0,255) if viol else (0,220,220)
-    
-    draw_labeled_box(out, rx1, ry1, rx2, ry2, "AREA SOP UTAMA", rc, (255, 255, 255))
-    draw_text_with_bg(out, f"Operator di ROI: {'YA' if in_roi else 'TIDAK'}", (12, 72), (255, 255, 255), rc)
-    draw_text_with_bg(out, f"Durasi: {dur:.1f}s | Batas: 5.0s", (12, 114), (255, 255, 255), (15, 23, 42))
-    
-    if viol and int(now*2)%2==0:
-        alert_y = min(h - 16, ry2 + 34)
-        draw_text_with_bg(out, "SOP MELANGGAR!", (rx1, alert_y), (255, 255, 255), (0, 0, 255))
-        
-    for (px,py,pw,ph,_) in persons:
-        c = rc if (rx1<=px+pw//2<=rx2 and ry1<=py+ph//2<=ry2) else (0,200,0)
-        draw_labeled_box(out, px, py, px+pw, py+ph, None, c)
-        
-    if not persons:
-        draw_text_with_bg(out, "Tidak ada orang terdeteksi", (12, h - 18), (255, 255, 255), (80, 80, 180))
-        
-    meta["sop_status"]     = "MELANGGAR" if viol else "AMAN"
-    meta["sop_duration_s"] = round(dur, 1)
-    return out, meta
+        if active_model is not None and infer_fr is not None:
+            with _yolo_lock:
+                results = []
+                try:
+                    results = active_model.track(
+                        infer_fr,
+                        persist=True,
+                        tracker="bytetrack.yaml",
+                        classes=[0, 1, 2, 3, 5, 7],
+                        conf=0.20,
+                        imgsz=320,
+                        verbose=False
+                    )
+                except Exception:
+                    try:
+                        results = active_model.track(
+                            infer_fr,
+                            persist=True,
+                            tracker="bytetrack.yaml",
+                            classes=[0, 1, 2, 3, 5, 7],
+                            conf=0.25,
+                            imgsz=640,
+                            verbose=False
+                        )
+                    except Exception:
+                        results = []
 
+                if results and len(results) > 0 and results[0].boxes is not None:
+                    boxes = results[0].boxes
+                    for box in boxes:
+                        bx1, by1, bx2, by2 = map(int, box.xyxy[0].tolist())
+                        cls_id = int(box.cls[0].item())
+                        conf = float(box.conf[0].item())
+                        track_id = int(box.id[0].item()) if box.id is not None else None
+                        
+                        if scale != 1.0:
+                            bx1 = int(bx1 / scale)
+                            by1 = int(by1 / scale)
+                            bx2 = int(bx2 / scale)
+                            by2 = int(by2 / scale)
+                            
+                        tracked_objects.append((bx1, by1, bx2, by2, cls_id, conf, track_id))
 
-def process_contraflow(cam_id, frame, persons, state, meta):
-    h, w = frame.shape[:2]
-    out = frame.copy()
-    now = time.time()
-    
-    lx = int(w*0.5)
-    lc = (255,128,0)
-    line_thickness = get_dynamic_box_thickness(h)
-    cv2.line(out,(lx,0),(lx,h),lc,line_thickness)
-    draw_text_with_bg(out, "JALUR CONTRAFLOW (BATAS)", (min(w - 260, lx + 10), 32), (255, 255, 255), lc)
-    
-    centroids = []
-    for (px,py,pw,ph,_) in persons:
-        cx_c,cy_c = px+pw//2, py+ph//2
-        centroids.append((cx_c,cy_c))
-        draw_labeled_box(out, px, py, px+pw, py+ph, None, (0,200,0))
-        
-    tracks = state.setdefault("contraflow_tracks", [])
-    upd = []
-    alarm = False
-    
-    for cx_c,cy_c in centroids:
-        matched = None; md = 80.0
-        for t in tracks:
-            lhx,lhy = t["history"][-1][:2]
-            d = float(np.sqrt((cx_c-lhx)**2+(cy_c-lhy)**2))
-            if d < md: md=d; matched=t
-        if matched:
-            matched["history"].append((cx_c,cy_c,now)); matched["last_seen"]=now
-            if len(matched["history"])>=5 and matched["history"][-5][0]>lx and cx_c<lx:
-                matched["alert"]=True
-            if matched["alert"]: alarm=True
-            upd.append(matched)
+    detected_objects_list = []
+    for (x1, y1, x2, y2, cls_id, conf, track_id) in tracked_objects:
+        class_name = VEHICLE_CLASS_MAP.get(cls_id, "Kendaraan")
+        if class_name in current_in_frame:
+            current_in_frame[class_name] += 1
+            
+        if track_id is not None and class_name in seen_ids:
+            seen_ids[class_name].add(track_id)
+            id_str = f" #{track_id}"
         else:
-            upd.append({"id":len(upd)+1,"history":[(cx_c,cy_c,now)],"last_seen":now,"alert":False})
+            id_str = ""
             
-    state["contraflow_tracks"] = [t for t in upd if now-t["last_seen"]<2.5]
+        color = CLASS_COLORS.get(cls_id, (0, 255, 255))
+        label_txt = f"{class_name}{id_str} ({int(conf*100)}%)"
+        draw_labeled_box(out, x1, y1, x2, y2, label_txt, color, (255, 255, 255), 2)
+        detected_objects_list.append(label_txt)
+
+    cumulative_counts = {cat: len(seen_ids[cat]) for cat in seen_ids}
+    overlay_txt = f"KUMULATIF UNIK: Mobil:{cumulative_counts['Mobil']} | Motor:{cumulative_counts['Motor']} | Truk:{cumulative_counts['Truk']} | Bus:{cumulative_counts['Bus']}"
+    draw_text_with_bg(out, overlay_txt, (10, 60), (15, 23, 42), (0, 255, 120))
     
-    if alarm:
-        if int(now*2)%2==0:
-            draw_text_with_bg(out, "CONTRAFLOW DETECTED!", (max(12, lx - 210), h - 20), (255, 255, 255), (0, 0, 255))
-        cv2.arrowedLine(out,(lx+60,h//2),(lx-60,h//2),(0,0,255),max(3, line_thickness + 1),tipLength=0.3)
-        
-    meta["contraflow_status"] = "MELANGGAR" if alarm else "AMAN"
-    meta["contraflow_alarm"]  = alarm
+    meta["vehicle_counts"] = cumulative_counts
+    meta["current_in_frame"] = current_in_frame
+    meta["object_counts"] = cumulative_counts
+    meta["people_count"] = current_in_frame.get("Orang", 0)
+    meta["detected_objects_list"] = detected_objects_list
+    meta["tracked_objects"] = tracked_objects
     
-    for t in state["contraflow_tracks"]:
-        c = (0,0,255) if t["alert"] else (0,200,80)
-        for pt in t["history"][-15:]:
-            cv2.circle(out,(pt[0],pt[1]),max(4, h // 260),c,-1)
-            
-    if not persons:
-        draw_text_with_bg(out, "Tidak ada orang terdeteksi", (12, h - 18), (255, 255, 255), (80, 80, 180))
-        
     return out, meta
 
 
 def process_drowsiness(cam_id, frame, state, meta):
     h, w = frame.shape[:2]
-    out = frame.copy()
+    out = frame
     now = time.time()
     
     load_mediapipe()
@@ -958,18 +1023,14 @@ def process_drowsiness(cam_id, frame, state, meta):
     ear = 0.0
     drowsy = False
     alarm = False
-    
     state_info = state.setdefault("drowsy_timer", {"start_time": None, "current_state": "Normal"})
     
     if res.face_landmarks:
         landmarks = res.face_landmarks[0]
-        
-        # Calculate eye aspect ratios (EAR)
         left_ear = calculate_ear([362, 385, 387, 263, 373, 380], landmarks, w, h)
         right_ear = calculate_ear([33, 160, 158, 133, 153, 144], landmarks, w, h)
         ear = (left_ear + right_ear) / 2.0
         
-        # Threshold logic
         if ear < 0.20:
             if state_info["start_time"] is None:
                 state_info["start_time"] = now
@@ -987,7 +1048,6 @@ def process_drowsiness(cam_id, frame, state, meta):
             
         drowsy = state_info["current_state"] == "Mengantuk"
         alarm = drowsy
-        
         eye_color = (0, 0, 255) if drowsy else (0, 255, 0)
         
         left_pts = np.array([[int(landmarks[idx].x * w), int(landmarks[idx].y * h)] for idx in [362, 385, 387, 263, 373, 380]], dtype=np.int32)
@@ -1036,11 +1096,11 @@ def process_drowsiness(cam_id, frame, state, meta):
 
 def process_pose(frame, infer_fr, scale, meta, cached_pose_data=None):
     h, w = frame.shape[:2]
-    out = frame.copy()
+    out = frame
     
     if cached_pose_data is None:
         load_yolo_pose_model()
-        if not HAS_POSE or yolo_pose_model is None:
+        if yolo_pose_model is None:
             draw_text_with_bg(out, "ERR: YOLO Pose model not loaded", (12, h - 18), (255, 255, 255), (0, 0, 255))
             return out, meta
 
@@ -1053,22 +1113,10 @@ def process_pose(frame, infer_fr, scale, meta, cached_pose_data=None):
     joint_radius = max(4, h // 260)
     
     connections = [
-        ((0, 1), head_color),
-        ((0, 2), head_color),
-        ((1, 3), head_color),
-        ((2, 4), head_color),
-        ((5, 6), torso_color),
-        ((5, 11), torso_color),
-        ((6, 12), torso_color),
-        ((11, 12), torso_color),
-        ((5, 7), arm_color),
-        ((7, 9), arm_color),
-        ((6, 8), arm_color),
-        ((8, 10), arm_color),
-        ((11, 13), leg_color),
-        ((13, 15), leg_color),
-        ((12, 14), leg_color),
-        ((14, 16), leg_color),
+        ((0, 1), head_color), ((0, 2), head_color), ((1, 3), head_color), ((2, 4), head_color),
+        ((5, 6), torso_color), ((5, 11), torso_color), ((6, 12), torso_color), ((11, 12), torso_color),
+        ((5, 7), arm_color), ((7, 9), arm_color), ((6, 8), arm_color), ((8, 10), arm_color),
+        ((11, 13), leg_color), ((13, 15), leg_color), ((12, 14), leg_color), ((14, 16), leg_color),
     ]
 
     if cached_pose_data is not None:
@@ -1094,51 +1142,40 @@ def process_pose(frame, infer_fr, scale, meta, cached_pose_data=None):
                     cv2.line(out, pts[p1], pts[p2], color, line_thickness, cv2.LINE_AA)
                     
             for idx, pt_coords in pts.items():
-                if idx in [0, 1, 2, 3, 4]:
-                    c_color = head_color
-                elif idx in [5, 6, 11, 12]:
-                    c_color = torso_color
-                elif idx in [7, 8, 9, 10]:
-                    c_color = arm_color
-                else:
-                    c_color = leg_color
+                c_color = head_color if idx in range(5) else torso_color if idx in [5,6,11,12] else arm_color if idx in [7,8,9,10] else leg_color
                 cv2.circle(out, pt_coords, joint_radius, c_color, -1, cv2.LINE_AA)
                 
         meta["pose_data"] = cached_pose_data
         meta["people_count"] = len(cached_pose_data)
         return out, meta
 
-    is_openvino = False
-    try:
-        is_openvino = "openvino" in str(getattr(yolo_pose_model, "ckpt_path", "") or "").lower()
-    except Exception:
-        pass
-    pose_imgsz = 640 if (_device == "cuda" or is_openvino) else 320
     with torch.no_grad():
-        results = yolo_pose_model.track(
-            infer_fr,
-            persist=True,
-            tracker="bytetrack.yaml",
-            verbose=False,
-            conf=0.25,
-            iou=0.55,
-            device=_device,
-            imgsz=pose_imgsz
-        )
+        try:
+            results = yolo_pose_model.track(
+                infer_fr, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.20, imgsz=320
+            )
+        except Exception:
+            try:
+                results = yolo_pose_model.track(
+                    infer_fr, persist=True, tracker="bytetrack.yaml", verbose=False, conf=0.20, imgsz=640
+                )
+            except Exception:
+                try:
+                    results = yolo_pose_model(infer_fr, verbose=False, conf=0.20, imgsz=640)
+                except Exception:
+                    results = []
+                
     pose_data = []
-    
     if results and len(results) > 0:
         r = results[0]
         if r.boxes is not None and r.keypoints is not None:
             boxes = r.boxes
             kpts = r.keypoints
-            
             for i in range(len(boxes)):
                 box = boxes[i]
                 track_id = int(box.id[0]) if box.id is not None else -1
                 conf = float(box.conf[0]) if box.conf is not None else 0.0
-                if conf < 0.25:
-                    continue
+                if conf < 0.25: continue
                 
                 box_xy = box.xyxy[0].cpu().numpy().tolist()
                 x1_n = max(0, int(box_xy[0] / scale))
@@ -1165,10 +1202,7 @@ def process_pose(frame, infer_fr, scale, meta, cached_pose_data=None):
                             pts[idx] = (int(px_k_native), int(py_k_native))
                     
                     pose_data.append({
-                        "id": track_id,
-                        "conf": round(conf, 2),
-                        "keypoints": xy_list,
-                        "bbox": [x1_n, y1_n, x2_n, y2_n]
+                        "id": track_id, "conf": round(conf, 2), "keypoints": xy_list, "bbox": [x1_n, y1_n, x2_n, y2_n]
                     })
                     
                     for (p1, p2), color in connections:
@@ -1176,16 +1210,8 @@ def process_pose(frame, infer_fr, scale, meta, cached_pose_data=None):
                             cv2.line(out, pts[p1], pts[p2], color, line_thickness, cv2.LINE_AA)
                             
                     for idx, pt_coords in pts.items():
-                        if idx < len(xy_list_raw):
-                            if idx in [0, 1, 2, 3, 4]:
-                                c_color = head_color
-                            elif idx in [5, 6, 11, 12]:
-                                c_color = torso_color
-                            elif idx in [7, 8, 9, 10]:
-                                c_color = arm_color
-                            else:
-                                c_color = leg_color
-                            cv2.circle(out, pt_coords, joint_radius, c_color, -1, cv2.LINE_AA)
+                        c_color = head_color if idx in range(5) else torso_color if idx in [5,6,11,12] else arm_color if idx in [7,8,9,10] else leg_color
+                        cv2.circle(out, pt_coords, joint_radius, c_color, -1, cv2.LINE_AA)
 
     meta["pose_data"] = pose_data
     meta["people_count"] = len(pose_data)
@@ -1201,10 +1227,8 @@ MODE_MAPPING = {
     "face": "face",
     "Atribut Pakaian & Objek Umum": "attribute",
     "attribute": "attribute",
-    # "Kepatuhan SOP (Timer ROI)": "sop",
-    # "sop": "sop",
-    # "Deteksi Arah (Contraflow)": "contraflow",
-    # "contraflow": "contraflow",
+    "Tracking & Penghitungan Kendaraan": "vehicle",
+    "vehicle": "vehicle",
     "Deteksi Kantuk (EAR)": "drowsiness",
     "drowsiness": "drowsiness",
     "Pose Estimation & Human Tracking": "pose",
@@ -1212,142 +1236,141 @@ MODE_MAPPING = {
 }
 
 def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
-    t_now = time.time()
-    # Ensure we ALWAYS use a copy to prevent modifying the original stream buffer
-    frame = frame.copy()
+    t_start = time.time()
+    mode = MODE_MAPPING.get(mode_raw, "none")
     
-    # Downscale the frame immediately to 640px max width to prevent heavy CPU usage on high resolutions
+    # Pre-calculate resolution downscaling to max 640px wide for pipeline efficiency
     h, w = frame.shape[:2]
     target_w = 640
     if w > target_w:
-        scale = target_w / w
+        scale = target_w / float(w)
         target_h = int(h * scale)
         frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
         h, w = target_h, target_w
 
-    # ── FPS Calculation
     t_now = time.time()
+    # Stream FPS Moving Average
     if "last_timestamp" in state:
         time_diff = t_now - state["last_timestamp"]
         if time_diff > 0:
-            current_fps = 1.0 / time_diff
-            state["fps"] = state.get("fps", current_fps) * 0.9 + current_fps * 0.1
+            current_stream_fps = 1.0 / time_diff
+            state["stream_fps"] = state.get("stream_fps", current_stream_fps) * 0.85 + current_stream_fps * 0.15
     else:
-        state["fps"] = 10.0
+        state["stream_fps"] = 30.0
     state["last_timestamp"] = t_now
 
-    mode = MODE_MAPPING.get(mode_raw, "none")
-    
-    # Increment frame count
     state["frame_count"] = state.get("frame_count", 0) + 1
 
-    # Log actual real-time FPS per mode to server terminal every 30 frames
-    if state["frame_count"] % 30 == 0:
-        print(f"[FPS-LOG] Camera {cam_id} | Mode: {mode} | FPS: {state.get('fps', 0.0):.2f}", flush=True)
-    
-    # If mode is none, just return frame directly (no skip needed since it's light)
+    # Mode OFF shortcut
     if mode == 'none':
         draw_text_with_bg(frame, "AI: OFF", (12, 28), (255, 255, 255), (0, 0, 255))
         if "last_processed" in state:
             del state["last_processed"]
         return frame, {
-            "engine": "YOLOv8s",
-            "camera_status": "Aktif",
-            "people_count": 0,
-            "face_detected": False,
-            "face_name": "None",
-            "attributes": [],
-            "object_counts": {},
-            "detected_objects_list": [],
-            "sop_status": "AMAN",
-            "sop_duration_s": 0.0,
-            "contraflow_status": "AMAN", "contraflow_alarm": False,
+            "engine": "YOLO26", "camera_status": "Aktif", "people_count": 0, "face_detected": False,
+            "face_name": "None", "attributes": [], "object_counts": {}, "detected_objects_list": [],
             "drowsiness_status": "Normal", "ear_value": 0.0, "alarm": False, "pose_data": [],
-            "fps": 0.0
+            "infer_time_ms": 0.0, "ai_fps": 0.0, "stream_fps": round(state.get("stream_fps", 30.0), 1),
+            "cpu_usage": 0.0, "backend": "N/A", "active_model": "None"
         }
 
-    # Target exactly 5 AI inferences per second on CPU (200ms interval)
-    AI_INTERVAL = 0.20
+    # Stride interval for non-continuous modes (in seconds)
+    MODE_AI_INTERVALS = {
+        "face": 0.08, "vehicle": 0.08, "pose": 0.08, "attribute": 0.12, "drowsiness": 0.03
+    }
+    AI_INTERVAL = MODE_AI_INTERVALS.get(mode, 0.05)
     last_infer = state.get("last_inference_time", 0.0)
     time_since_last = t_now - last_infer
     
     should_skip = False
     if "last_metadata" in state and state.get("last_mode") == mode:
-        if _device == "cuda" or mode == 'drowsiness':
-            should_skip = False  # GPU or Drowsiness (needs continuous EAR) -> always infer
-        elif time_since_last < AI_INTERVAL:
-            should_skip = True   # CPU-heavy -> skip if under 200ms
-            
+        if mode != 'drowsiness' and time_since_last < AI_INTERVAL:
+            should_skip = True
+
+    # ── CPU Usage Query
+    cpu_percent = 0.0
+    if psutil is not None:
+        try:
+            cpu_percent = psutil.cpu_percent(interval=None)
+        except Exception: pass
+
+    # Get model and backend strings for current active mode
+    if mode == 'face':
+        act_model_name = "YuNet + SFace"
+        act_backend = "OpenCV DNN (CPU)"
+    elif mode in ['attribute', 'vehicle']:
+        load_yolo_heavy()
+        act_model_name = yolo_model_heavy_name_str
+        act_backend = yolo_model_heavy_backend
+    elif mode == 'pose':
+        load_yolo_pose_model()
+        act_model_name = yolo_pose_name_str
+        act_backend = yolo_pose_backend
+    elif mode == 'drowsiness':
+        act_model_name = "FaceLandmarker"
+        act_backend = "MediaPipe CPU"
+    else:
+        act_model_name = "YOLO26"
+        act_backend = "CPU"
+
     if should_skip:
+        # OVERLAY CACHING: Render previous bounding boxes/metadata over current live frame for smooth non-flickering visual stream
         last_meta = state["last_metadata"].copy()
-        eng_lbl = "YOLOv8s (AKTIF)" if HAS_YOLO else "OpenCV HOG Fallback"
-        draw_text_with_bg(frame, f"AI: {eng_lbl}", (12, 28), (15, 23, 42), (0, 255, 120))
+        draw_text_with_bg(frame, f"AI: {act_model_name} ({act_backend})", (12, 28), (15, 23, 42), (0, 255, 120))
         
         try:
             if mode == 'face':
-                processed, meta = process_face(frame, state.get("last_persons_raw", []), last_meta, cached_faces=last_meta.get("faces"))
+                processed, meta = process_face(frame, state, last_meta, cached_faces=last_meta.get("faces"))
             elif mode == 'attribute':
                 processed, meta = process_attribute(frame, state.get("last_persons_raw", []), state.get("last_detections", []), state.get("last_bags_raw", []), last_meta, cached_colors=last_meta.get("cached_colors"))
-            # elif mode == 'sop':
-            #     processed, meta = process_sop(cam_id, frame, state.get("last_persons_raw", []), state, last_meta)
-            # elif mode == 'contraflow':
-            #     processed, meta = process_contraflow(cam_id, frame, state.get("last_persons_raw", []), state, last_meta)
+            elif mode == 'vehicle':
+                processed, meta = process_vehicle_tracking(frame, None, 1.0, state, last_meta, cached_data=last_meta.get("tracked_objects"))
             elif mode == 'pose':
                 processed, meta = process_pose(frame, None, 1.0, last_meta, cached_pose_data=last_meta.get("pose_data"))
             else:
-                processed, meta = frame.copy(), last_meta
+                processed, meta = frame, last_meta
         except Exception as dispatch_err:
-            import traceback
-            print(f"[AI-ENGINE] CACHED DISPATCH ERROR cam_{cam_id} mode={mode}: {dispatch_err}", flush=True)
-            print(traceback.format_exc(), flush=True)
-            processed = frame.copy()
-            draw_text_with_bg(processed, f"AI ERR: {mode}", (12, h - 18), (255, 255, 255), (0, 0, 200))
-            
-        fps_text = f"FPS: {state.get('fps', 0.0):.1f}"
-        draw_text_with_bg(processed, fps_text, (max(12, w - 170), 28), (15, 23, 42), (0, 255, 255))
+            processed = frame
+            meta = last_meta
+
+        meta["infer_time_ms"] = round(state.get("last_infer_time_ms", 0.0), 1)
+        meta["ai_fps"] = round(state.get("ai_fps", 0.0), 1)
+        meta["stream_fps"] = round(state.get("stream_fps", 0.0), 1)
+        meta["cpu_usage"] = round(cpu_percent, 1)
+        meta["backend"] = act_backend
+        meta["active_model"] = act_model_name
         
-        state["last_processed"] = processed.copy()
-        state["last_metadata"] = meta.copy()
+        fps_text = f"FPS: {state.get('stream_fps', 0.0):.1f}"
+        draw_text_with_bg(processed, fps_text, (max(12, w - 160), 28), (15, 23, 42), (0, 255, 255))
         return processed, meta
 
-    # Otherwise, run full inference
-    eng_lbl = "YOLOv8s (AKTIF)" if HAS_YOLO else "OpenCV HOG Fallback"
-    draw_text_with_bg(frame, f"AI: {eng_lbl}", (12, 28), (15, 23, 42), (0, 255, 120))
+    # ── Perform Full Inference
+    t_infer_start = time.time()
+    draw_text_with_bg(frame, f"AI: {act_model_name} ({act_backend})", (12, 28), (15, 23, 42), (0, 255, 120))
 
-    # 1. Resize frame for faster AI inference
-    # drowsiness uses MediaPipe (processes at original res — it's fast enough)
-    # pose/attribute: downscale to 640 wide max
-    # face: downscale to 480 wide max (very light objects)
+    # Resize for model input (imgsz=320 for nano/pose, imgsz=416 for heavy)
     if mode == 'drowsiness':
         infer_fr = frame
         scale = 1.0
-    elif mode in ['attribute', 'pose']:
-        infer_w = 640
-        if w > infer_w:
-            scale = infer_w / w
-            infer_h = int(h * scale)
-            infer_fr = cv2.resize(frame, (infer_w, infer_h), interpolation=cv2.INTER_LINEAR)
-        else:
-            infer_fr = frame
-            scale = 1.0
-    else:
-        # face — use smaller resize
-        infer_w = 480
-        if w > infer_w:
-            scale = infer_w / w
-            infer_h = int(h * scale)
-            infer_fr = cv2.resize(frame, (infer_w, infer_h), interpolation=cv2.INTER_LINEAR)
-        else:
-            infer_fr = frame
-            scale = 1.0
+    elif mode in ['attribute', 'vehicle']:
+        infer_w = 416
+        scale = infer_w / float(w) if w > infer_w else 1.0
+        infer_fr = cv2.resize(frame, (infer_w, int(h * scale)), interpolation=cv2.INTER_LINEAR) if scale != 1.0 else frame
+    elif mode == 'pose':
+        infer_w = 320
+        scale = infer_w / float(w) if w > infer_w else 1.0
+        infer_fr = cv2.resize(frame, (infer_w, int(h * scale)), interpolation=cv2.INTER_LINEAR) if scale != 1.0 else frame
+    else: # face mode
+        infer_fr = frame
+        scale = 1.0
 
-    # 2. Run object detection base (YOLO or HOG) for relevant modes
     persons_raw = []
     detections = []
     bags_raw = []
     
     meta = {
-        "engine": "YOLOv8s" if HAS_YOLO else "OpenCV HOG",
+        "engine": act_model_name,
+        "backend": act_backend,
         "camera_status": "Aktif",
         "people_count": 0,
         "face_detected": False,
@@ -1355,89 +1378,109 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
         "attributes": [],
         "object_counts": {},
         "detected_objects_list": [],
-        "sop_status": "AMAN",
-        "sop_duration_s": 0.0,
-        "contraflow_status": "AMAN",
-        "contraflow_alarm": False,
         "drowsiness_status": "Normal",
         "ear_value": 0.0,
         "alarm": False,
         "pose_data": [],
-        "fps": round(state.get("fps", 0.0), 1)
+        "stream_fps": round(state.get("stream_fps", 0.0), 1)
     }
 
-    if mode in ['face', 'attribute']:
-        if mode == 'attribute':
-            active_model = load_yolo_heavy()
-        else:
-            active_model = load_yolo_model()
-            
-        if HAS_YOLO and active_model is not None:
-            # attribute uses the heavier model for better multi-class accuracy
-            yolo_classes = None if mode == 'attribute' else {0}
-            
-            raw_detections = run_yolo(infer_fr, yolo_classes, model=active_model)
-            for (x1, y1, x2, y2, cls, conf) in raw_detections:
-                if scale != 1.0:
-                    x1 = int(x1 / scale)
-                    y1 = int(y1 / scale)
-                    x2 = int(x2 / scale)
-                    y2 = int(y2 / scale)
-                detections.append((x1, y1, x2, y2, cls, conf))
-                if cls == 0:
-                    persons_raw.append((x1, y1, x2 - x1, y2 - y1, conf))
-                elif cls in BAG_CLASSES:
-                    bags_raw.append((x1, y1, x2 - x1, y2 - y1, cls, conf))
-        else:
-            if hog is not None:
-                try:
-                    rects, _ = hog.detectMultiScale(infer_fr, winStride=(8,8), padding=(8,8), scale=1.05)
-                    for (rx, ry, rw, rh) in rects:
-                        x1, y1, x2, y2 = rx, ry, rx + rw, ry + rh
-                        if scale != 1.0:
-                            x1 = int(x1 / scale)
-                            y1 = int(y1 / scale)
-                            x2 = int(x2 / scale)
-                            y2 = int(y2 / scale)
-                        persons_raw.append((x1, y1, x2 - x1, y2 - y1, 0.6))
-                        detections.append((x1, y1, x2, y2, 0, 0.6))
-                except Exception:
-                    pass
+    if mode == 'attribute':
+        active_m = load_yolo_heavy()
+        raw_detections = run_yolo(infer_fr, None, model=active_m, imgsz=416)
+        for (x1, y1, x2, y2, cls, conf) in raw_detections:
+            if scale != 1.0:
+                x1, y1, x2, y2 = int(x1 / scale), int(y1 / scale), int(x2 / scale), int(y2 / scale)
+            detections.append((x1, y1, x2, y2, cls, conf))
+            if cls == 0:
+                persons_raw.append((x1, y1, x2 - x1, y2 - y1, conf))
+            elif cls in BAG_CLASSES:
+                bags_raw.append((x1, y1, x2 - x1, y2 - y1, cls, conf))
 
-    # Dispatch to specific mode processor — wrapped per-mode to prevent generator crash
+    # Dispatch to active mode processor
     try:
         if mode == 'face':
-            processed, meta = process_face(frame, persons_raw, meta)
+            processed, meta = process_face(frame, state, meta)
         elif mode == 'attribute':
             processed, meta = process_attribute(frame, persons_raw, detections, bags_raw, meta)
-        # elif mode == 'sop':
-        #     processed, meta = process_sop(cam_id, frame, persons_raw, state, meta)
-        # elif mode == 'contraflow':
-        #     processed, meta = process_contraflow(cam_id, frame, persons_raw, state, meta)
+        elif mode == 'vehicle':
+            processed, meta = process_vehicle_tracking(frame, infer_fr, scale, state, meta)
         elif mode == 'drowsiness':
             processed, meta = process_drowsiness(cam_id, frame, state, meta)
         elif mode == 'pose':
             processed, meta = process_pose(frame, infer_fr, scale, meta)
         else:
-            processed, meta = frame.copy(), meta
+            processed, meta = frame, meta
     except Exception as dispatch_err:
         import traceback
         print(f"[AI-ENGINE] DISPATCH ERROR cam_{cam_id} mode={mode}: {dispatch_err}", flush=True)
         print(traceback.format_exc(), flush=True)
-        processed = frame.copy()
-        draw_text_with_bg(processed, f"AI ERR: {mode}", (12, h - 18), (255, 255, 255), (0, 0, 200))
+        processed = frame
 
-    # Draw FPS on processed frame
-    fps_text = f"FPS: {state.get('fps', 0.0):.1f}"
-    draw_text_with_bg(processed, fps_text, (max(12, w - 170), 28), (15, 23, 42), (0, 255, 255))
+    infer_time_ms = (time.time() - t_infer_start) * 1000.0
+    state["last_infer_time_ms"] = infer_time_ms
 
-    # Save to state cache
-    state["last_processed"] = processed.copy()
+    # AI FPS Moving Average
+    if "last_ai_infer_time" in state:
+        dt_ai = t_now - state["last_ai_infer_time"]
+        if dt_ai > 0:
+            current_ai_fps = 1.0 / dt_ai
+            state["ai_fps"] = state.get("ai_fps", current_ai_fps) * 0.85 + current_ai_fps * 0.15
+    else:
+        state["ai_fps"] = 0.0
+    state["last_ai_infer_time"] = t_now
+
+    # Benchmark logging every 3.0 seconds
+    last_bench_log = state.get("last_benchmark_log_time", 0.0)
+    if t_now - last_bench_log >= 3.0:
+        state["last_benchmark_log_time"] = t_now
+        print(
+            f"[BENCHMARK] Cam {cam_id} | Mode: {mode:<10} | Model: {act_model_name:<22} | Backend: {act_backend:<15} | "
+            f"Infer Time: {infer_time_ms:5.1f}ms | AI FPS: {state.get('ai_fps', 0.0):4.1f} | Stream FPS: {state.get('stream_fps', 0.0):4.1f} | CPU: {cpu_percent:4.1f}%",
+            flush=True
+        )
+
+    fps_text = f"FPS: {state.get('stream_fps', 0.0):.1f}"
+    draw_text_with_bg(processed, fps_text, (max(12, w - 160), 28), (15, 23, 42), (0, 255, 255))
+
+    meta["infer_time_ms"] = round(infer_time_ms, 1)
+    meta["ai_fps"] = round(state.get("ai_fps", 0.0), 1)
+    meta["stream_fps"] = round(state.get("stream_fps", 0.0), 1)
+    meta["cpu_usage"] = round(cpu_percent, 1)
+    meta["backend"] = act_backend
+    meta["active_model"] = act_model_name
+
+    # Expose raw person detections untuk ZoneMonitor (list of (x1,y1,x2,y2,cls,conf))
+    # ZoneMonitor menggunakan ini untuk cek kehadiran person di zona
+    if mode == 'attribute':
+        # Attribute mode: person bbox sudah ada di persons_raw (format: x,y,w,h,conf)
+        meta["detections_raw"] = [
+            (int(px), int(py), int(px+pw), int(py+ph), 0, float(pc))
+            for (px, py, pw, ph, pc) in persons_raw
+        ]
+    elif mode == 'vehicle':
+        # Vehicle mode: ambil person dari tracked_objects
+        meta["detections_raw"] = [
+            (x1, y1, x2, y2, cls, conf)
+            for (x1, y1, x2, y2, cls, conf, _track_id) in meta.get("tracked_objects", [])
+            if cls == 0  # cls 0 = person (COCO)
+        ]
+    elif mode == 'pose':
+        # Pose mode: ambil bbox dari pose_data
+        meta["detections_raw"] = [
+            (p["bbox"][0], p["bbox"][1], p["bbox"][2], p["bbox"][3], 0, p["conf"])
+            for p in meta.get("pose_data", []) if p.get("bbox")
+        ]
+    else:
+        # Mode lain: zone monitor punya thread YOLO sendiri, detections_raw kosong
+        meta["detections_raw"] = []
+
+    # Cache last metadata for overlay persistence
     state["last_metadata"] = meta.copy()
     state["last_mode"] = mode
     state["last_persons_raw"] = persons_raw
     state["last_detections"] = detections
     state["last_bags_raw"] = bags_raw
     state["last_inference_time"] = t_now
-    
+
     return processed, meta

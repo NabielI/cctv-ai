@@ -14,17 +14,26 @@ import numpy as np
 import time
 import traceback
 import sqlite3
-from fastapi import FastAPI, Response, Request, HTTPException, Query
+import json
+from fastapi import FastAPI, Response, Request, HTTPException, Query, File, UploadFile, Form
 from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 
 # Import modular components
 from camera_manager import CameraManager
-from analytics_engine import run_analytics, load_yolo_model, load_yolo_heavy, load_mediapipe, load_yolo_pose_model
+from analytics_engine import (
+    run_analytics, load_yolo_model, load_yolo_heavy, load_mediapipe, load_yolo_pose_model,
+    register_face, get_registered_faces_list, delete_registered_face
+)
+from zone_monitor import get_zone_monitor, ZoneConfig
 
 app = FastAPI(title="NVR AI Analytics Service")
+
+os.makedirs("uploads/faces", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # CORS middleware configuration
 app.add_middleware(
@@ -40,10 +49,15 @@ camera_manager = CameraManager()
 camera_metadata = {}
 camera_states = {}
 
-# Constants
-MAX_CONCURRENT_AI_CAMERAS = int(os.environ.get("MAX_CONCURRENT_AI_CAMERAS", 2))
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
-import json
+# Constants
+MAX_CONCURRENT_AI_CAMERAS = int(os.environ.get("MAX_CONCURRENT_AI_CAMERAS", 4))
+
 def auto_register_cameras():
     config_path = "config.json"
     if os.path.exists(config_path):
@@ -62,6 +76,12 @@ def auto_register_cameras():
 @app.on_event("startup")
 def startup_event():
     auto_register_cameras()
+    # Inisialisasi Zone Monitor (thread independen, berjalan terpisah dari AI mode)
+    try:
+        zm = get_zone_monitor()
+        print("[AI-SERVICE] ZoneMonitor started successfully.", flush=True)
+    except Exception as e:
+        print(f"[AI-SERVICE] Warning: ZoneMonitor failed to start: {e}", flush=True)
 
 # Pydantic schemas
 class CameraRegister(BaseModel):
@@ -106,8 +126,8 @@ def api_set_mode(camera_id: int, mode_data: ModeChange):
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
     
-    if mode_data.mode in ['sop', 'contraflow']:
-        raise HTTPException(status_code=400, detail="Mode SOP dan Contraflow telah dinonaktifkan")
+    if mode_data.mode in ['sop', 'contraflow', 'gesture']:
+        raise HTTPException(status_code=400, detail="Mode yang diminta telah dinonaktifkan")
 
     # Check limit before setting mode
     if mode_data.mode != "none":
@@ -127,7 +147,7 @@ def api_set_mode(camera_id: int, mode_data: ModeChange):
             print(f"[AI-SERVICE] Pre-loading model for mode: {mode_data.mode}", flush=True)
             if mode_data.mode == 'face':
                 load_yolo_model()
-            elif mode_data.mode == 'attribute':
+            elif mode_data.mode in ['attribute', 'vehicle']:
                 load_yolo_heavy()
             elif mode_data.mode == 'drowsiness':
                 load_mediapipe()
@@ -158,8 +178,8 @@ def compat_set_mode(mode_data: ModeChange):
     if not cam:
         return JSONResponse(status_code=404, content={"success": False, "error": "Camera not registered"})
     
-    if mode_data.mode in ['sop', 'contraflow']:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Mode SOP dan Contraflow telah dinonaktifkan"})
+    if mode_data.mode in ['sop', 'contraflow', 'gesture']:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Mode yang diminta telah dinonaktifkan"})
 
     # Check limit before setting mode
     if mode_data.mode != "none":
@@ -182,7 +202,7 @@ def compat_set_mode(mode_data: ModeChange):
             print(f"[AI-SERVICE] Pre-loading model for mode: {mode_data.mode}", flush=True)
             if mode_data.mode == 'face':
                 load_yolo_model()
-            elif mode_data.mode == 'attribute':
+            elif mode_data.mode in ['attribute', 'vehicle']:
                 load_yolo_heavy()
             elif mode_data.mode == 'drowsiness':
                 load_mediapipe()
@@ -228,7 +248,8 @@ def compat_get_metadata(cam_id: int = Query(0)):
     sel_classes = cam.get_selected_classes() if cam else None
     
     default_meta = {
-        "engine": "YOLOv8s",
+        "engine": "YOLO26",
+        "backend": "OpenVINO",
         "camera_status": "Aktif",
         "people_count": 0,
         "face_detected": False,
@@ -236,15 +257,14 @@ def compat_get_metadata(cam_id: int = Query(0)):
         "attributes": [],
         "object_counts": {},
         "detected_objects_list": [],
-        "sop_status": "AMAN",
-        "sop_duration_s": 0.0,
-        "contraflow_status": "AMAN",
-        "contraflow_alarm": False,
         "drowsiness_status": "Normal",
         "ear_value": 0.0,
         "alarm": False,
         "pose_data": [],
-        "fps": 0.0
+        "infer_time_ms": 0.0,
+        "ai_fps": 0.0,
+        "stream_fps": 0.0,
+        "cpu_usage": 0.0
     }
     
     meta = camera_metadata.get(cam_id, default_meta).copy()
@@ -276,17 +296,13 @@ def api_get_drowsiness_history(cam_id: Optional[int] = Query(None)):
         raise HTTPException(status_code=500, detail=f"Database read error: {e}")
 
 
-# ── MJPEG Video Streaming
-# The generator MUST never raise — any exception is caught, logged, and the
-# loop continues so the browser keeps receiving frames (no black screen).
-
 def _make_error_frame(msg: str) -> bytes:
     """Create a small JPEG error frame to keep the stream alive."""
     img = np.zeros((360, 640, 3), dtype=np.uint8)
     img[:] = (20, 20, 40)
     cv2.putText(img, msg[:80], (10, 180),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (80, 80, 255), 2, cv2.LINE_AA)
-    ok, enc = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 75])
+    ok, enc = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 60])
     return enc.tobytes() if ok else b''
 
 
@@ -294,14 +310,22 @@ def mjpeg_generator(cam_id: int):
     print(f"[AI-SERVICE] MJPEG client connected for camera_{cam_id}", flush=True)
     loading_step = 0
     loop_count = 0
+    TARGET_FPS = 30
+    frame_interval = 1.0 / TARGET_FPS
+    last_frame_time = 0.0
 
     while True:
-        # ── Outer guard: catches any unexpected error so the generator never dies ──
         try:
+            # Strict 30 FPS pacing — never block on AI speed
+            now = time.time()
+            elapsed = now - last_frame_time
+            if elapsed < frame_interval:
+                time.sleep(frame_interval - elapsed)
+            last_frame_time = time.time()
+
             cam = camera_manager.get_camera(cam_id)
 
             if not cam:
-                # Camera not registered — send placeholder and wait
                 raw = _make_error_frame("Camera not registered...")
                 if raw:
                     yield (b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: '
@@ -311,59 +335,50 @@ def mjpeg_generator(cam_id: int):
 
             frame = cam.get_frame()
             if frame is None:
-                # Camera registered but not yet streaming — show connecting animation
                 img = np.zeros((360, 640, 3), dtype=np.uint8)
                 img[:] = (15, 23, 42)
                 loading_step = (loading_step + 1) % 4
                 dots = "." * loading_step
                 cv2.putText(img, f"Connecting to Camera {dots}", (140, 180),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (180, 180, 200), 2, cv2.LINE_AA)
-                ok, enc = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                ok, enc = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 60])
                 if ok:
                     raw = enc.tobytes()
                     yield (b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: '
                            + str(len(raw)).encode() + b'\r\n\r\n' + raw + b'\r\n')
-                time.sleep(0.04)
                 continue
 
-            # Retrieve current mode — this is just a dict read, never modifies frame
-            mode = cam.get_mode()
-            selected_classes = cam.get_selected_classes()
-            state = get_camera_state(cam_id)
+            # get_ai_frame always returns instantly (cached AI overlay on fresh raw frame)
+            processed, meta = cam.get_ai_frame()
+            if processed is None:
+                processed = frame
+            camera_metadata[cam_id] = meta
 
-            # ── Inner guard: analytics exception must NOT kill the stream ──
+            # Feed frame ke ZoneMonitor (independen dari mode AI)
             try:
-                processed, meta = run_analytics(cam_id, frame, mode, selected_classes, state)
-                camera_metadata[cam_id] = meta
-            except Exception as analytics_err:
-                print(f"[AI-SERVICE] Analytics error cam_{cam_id} mode={mode}: {analytics_err}", flush=True)
-                print(traceback.format_exc(), flush=True)
-                processed = frame.copy()
-                cv2.putText(processed, f"AI ERR [{mode}]: {str(analytics_err)[:55]}",
-                            (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 60, 255), 2, cv2.LINE_AA)
+                zm = get_zone_monitor()
+                zm.feed_frame(cam_id, frame)
+            except Exception:
+                pass
 
-            # Resize aggressively before encoding to reduce JPEG encode time
-            # Target: max 960px width for smooth browser display
             h, w = processed.shape[:2]
-            if w > 960:
-                scale = 960 / w
+            if w > 640:
+                scale = 640.0 / w
                 new_w, new_h = int(w * scale), int(h * scale)
-                processed = cv2.resize(processed, (new_w, new_h), interpolation=cv2.INTER_AREA)
-            
-            ok, enc = cv2.imencode('.jpg', processed, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                processed = cv2.resize(processed, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+
+            ok, enc = cv2.imencode('.jpg', processed, [cv2.IMWRITE_JPEG_QUALITY, 55])
             if ok:
                 raw = enc.tobytes()
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: '
                        + str(len(raw)).encode() + b'\r\n\r\n' + raw + b'\r\n')
 
             loop_count += 1
-            if loop_count % 100 == 0:
+            if loop_count % 300 == 0:
                 import gc
                 gc.collect()
-            time.sleep(0.066)  # ~15 fps cap; balance responsiveness vs CPU
 
         except Exception as outer_err:
-            # Last-resort catch — log and keep the generator alive
             print(f"[AI-SERVICE] GENERATOR OUTER ERROR cam_{cam_id}: {outer_err}", flush=True)
             print(traceback.format_exc(), flush=True)
             raw = _make_error_frame(f"Stream error: {str(outer_err)[:60]}")
@@ -399,6 +414,134 @@ def compat_stream(cam_id: int = Query(0)):
             "Access-Control-Allow-Origin": "*"
         }
     )
+
+
+# ══════════════════════════════════════════════════
+#  Zone Monitoring REST API
+# ══════════════════════════════════════════════════
+
+class ZoneConfigRequest(BaseModel):
+    zone_id: str
+    cam_id: int
+    name: str
+    coords: list          # [[x_norm, y_norm], ...]
+    threshold_minutes: Optional[int] = 15
+    telegram_enabled: Optional[bool] = True
+
+
+@app.get("/api/zones")
+def api_get_zones(cam_id: Optional[int] = Query(None)):
+    """Dapatkan semua zona, opsional filter per kamera."""
+    zm = get_zone_monitor()
+    zones = zm.get_zones(cam_id=cam_id)
+    return {"success": True, "data": [z.to_dict() for z in zones]}
+
+
+@app.post("/api/zones")
+def api_save_zone(req: ZoneConfigRequest):
+    """Tambah atau update satu zona."""
+    zm = get_zone_monitor()
+    zone = ZoneConfig(
+        zone_id=req.zone_id,
+        cam_id=req.cam_id,
+        name=req.name,
+        coords=req.coords,
+        threshold_minutes=req.threshold_minutes or 15,
+        telegram_enabled=req.telegram_enabled if req.telegram_enabled is not None else True,
+    )
+    zm.set_zone(zone)
+    return {"success": True, "zone_id": zone.zone_id, "message": f"Zona '{zone.name}' disimpan."}
+
+
+@app.delete("/api/zones/{zone_id}")
+def api_delete_zone(zone_id: str):
+    """Hapus zona berdasarkan zone_id."""
+    zm = get_zone_monitor()
+    removed = zm.delete_zone(zone_id)
+    if removed:
+        return {"success": True, "message": f"Zona '{zone_id}' dihapus."}
+    raise HTTPException(status_code=404, detail=f"Zona '{zone_id}' tidak ditemukan.")
+
+
+@app.get("/api/zones/status")
+def api_zone_status(cam_id: Optional[int] = Query(None)):
+    """Status real-time semua zona (akumulasi menit saat ini dalam siklus jam)."""
+    zm = get_zone_monitor()
+    status = zm.get_zone_status(cam_id=cam_id)
+    return {"success": True, "data": status}
+
+
+@app.get("/api/zones/history")
+def api_zone_history(
+    cam_id: Optional[int] = Query(None),
+    zone_id: Optional[str] = Query(None),
+    limit: int = Query(100)
+):
+    """Riwayat event/pelanggaran zona."""
+    zm = get_zone_monitor()
+    history = zm.get_history(cam_id=cam_id, zone_id=zone_id, limit=limit)
+    return {"success": True, "data": history}
+
+
+@app.post("/api/zones/test_evaluate")
+def api_test_evaluate():
+    """Trigger evaluasi manual untuk testing (tanpa tunggu jam bulat)."""
+    zm = get_zone_monitor()
+    result = zm.trigger_test_evaluation()
+    return result
+
+
+@app.post("/api/zones/test_telegram")
+def api_test_telegram():
+    """Kirim pesan test ke Telegram untuk verifikasi konfigurasi."""
+    from telegram_notifier import send_test_message, get_bot_info
+    bot_info = get_bot_info()
+    sent = send_test_message()
+    return {
+        "success": sent,
+        "bot_info": bot_info,
+        "message": "Pesan test terkirim!" if sent else "Gagal kirim. Periksa TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID di .env"
+    }
+
+
+try:
+    @app.post("/api/faces/register")
+    async def api_register_face(name: str = Form(...), photos: List[UploadFile] = File(...)):
+        if not name or not name.strip():
+            raise HTTPException(status_code=400, detail="Nama wajib diisi")
+        if not photos or len(photos) == 0:
+            raise HTTPException(status_code=400, detail="Minimal upload 1 foto wajah")
+            
+        image_bytes_list = []
+        for file in photos:
+            content = await file.read()
+            if content:
+                image_bytes_list.append(content)
+                
+        if not image_bytes_list:
+            raise HTTPException(status_code=400, detail="Foto tidak valid")
+            
+        saved_count = register_face(name.strip(), image_bytes_list)
+        if saved_count == 0:
+            raise HTTPException(status_code=400, detail="Tidak ada wajah terdeteksi dalam foto. Gunakan foto dengan posisi wajah terlihat jelas.")
+            
+        return {"status": "success", "count": saved_count, "message": f"Berhasil mendaftarkan {saved_count} foto wajah untuk {name}"}
+except Exception as m_err:
+    print(f"[AI-SERVICE] Note: Face registration route skipped ({m_err}). Install python-multipart if needed.", flush=True)
+
+
+@app.get("/api/faces/list")
+def api_list_faces():
+    faces = get_registered_faces_list()
+    return {"status": "success", "data": faces}
+
+
+@app.delete("/api/faces/{face_id}")
+def api_delete_face(face_id: int):
+    success = delete_registered_face(face_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Data wajah tidak ditemukan")
+    return {"status": "success", "message": "Data wajah berhasil dihapus"}
 
 
 if __name__ == '__main__':

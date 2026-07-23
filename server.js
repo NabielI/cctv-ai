@@ -466,6 +466,54 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'templates')));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
+// Proxy /api/faces/* endpoints to Python FastAPI service (port 5001)
+app.use('/api/faces', (req, res) => {
+    const targetUrl = `http://127.0.0.1:5001/api/faces${req.url}`;
+    const proxyReq = http.request(targetUrl, {
+        method: req.method,
+        headers: {
+            ...req.headers,
+            host: '127.0.0.1:5001'
+        }
+    }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+    });
+    proxyReq.on('error', (err) => {
+        res.status(500).json({ success: false, message: 'Gagal terhubung ke AI Service' });
+    });
+    req.pipe(proxyReq);
+});
+
+// Proxy /api/zones/* endpoints to Python FastAPI service (Zone Monitoring)
+app.use('/api/zones', (req, res) => {
+    const targetUrl = `http://127.0.0.1:5001/api/zones${req.url}`;
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+        const body = Buffer.concat(chunks);
+        const proxyReq = http.request(targetUrl, {
+            method: req.method,
+            headers: {
+                ...req.headers,
+                host: '127.0.0.1:5001',
+                'Content-Length': body.length
+            }
+        }, (proxyRes) => {
+            res.writeHead(proxyRes.statusCode, proxyRes.headers);
+            proxyRes.pipe(res);
+        });
+        proxyReq.on('error', (err) => {
+            log(`Zone proxy error: ${err.message}`, 'error');
+            if (!res.headersSent) {
+                res.status(500).json({ success: false, message: 'Gagal terhubung ke AI Service (Zone Monitor)' });
+            }
+        });
+        proxyReq.write(body);
+        proxyReq.end();
+    });
+});
+
 // Resolve YouTube Live stream URL to direct HLS stream
 function resolveYoutubeUrl(youtubeUrl) {
     return new Promise((resolve) => {
@@ -1034,13 +1082,16 @@ app.post('/api/ptz/:id/move', async (req, res) => {
         const onvifRes = await sendOnvifSOAP(ip, port, '/onvif/ptz_service', 'http://www.onvif.org/ver20/ptz/wsdl/ContinuousMove', moveSoap);
         if (onvifRes.status === 200) {
             res.json({ success: true, message: `ContinuousMove ${action} dikirim` });
+        } else if (onvifRes.status === 400) {
+            log(`PTZ Move rejected (400) - camera model does not support physical PTZ motors`, 'ptz-warn');
+            res.status(400).json({ success: false, message: 'Kamera ini tidak mendukung gerakan PTZ fisik (lensa tetap / non-PTZ)' });
         } else {
             log(`PTZ Move failed with camera status ${onvifRes.status}`, 'ptz-error');
             res.status(500).json({ success: false, message: `Kamera mengembalikan status error ${onvifRes.status}` });
         }
     } catch(e) {
         log(`PTZ Move failed: ${e.message}`, 'ptz-error');
-        res.status(500).json({ success: false, message: `Gagal menggerakkan kamera: ${e.message}` });
+        res.status(500).json({ success: false, message: `Gagal menggerakkan kamera: Kamera tidak terhubung / non-PTZ` });
     }
 });
 
@@ -1127,6 +1178,35 @@ app.get('/api/ai/modes', (req, res) => {
     }).on('error', (e) => {
         res.status(500).json({ success: false, error: e.message });
     });
+});
+
+// AI clear sentence route
+app.post('/api/ai/:id/clear_sentence', (req, res) => {
+    const camId = parseInt(req.params.id);
+    const postData = JSON.stringify({ cam_id: camId });
+    const options = {
+        hostname: '127.0.0.1',
+        port: 5001,
+        path: '/clear_sentence',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData)
+        }
+    };
+    const proxy = http.request(options, (aiRes) => {
+        let data = '';
+        aiRes.on('data', chunk => data += chunk);
+        aiRes.on('end', () => {
+            res.setHeader('Content-Type', 'application/json');
+            res.status(aiRes.statusCode).send(data);
+        });
+    });
+    proxy.on('error', (e) => {
+        res.status(500).json({ success: false, error: e.message });
+    });
+    proxy.write(postData);
+    proxy.end();
 });
 
 // AI metadata retrieval route

@@ -2188,6 +2188,12 @@ code, pre, .mono, .font-mono,
     <button class="nav-item" id="nav-drowsiness" onclick="switchTab('drowsiness')">
       <i data-lucide="eye"></i> Riwayat Kantuk
     </button>
+    <button class="nav-item" id="nav-zone-monitor" onclick="switchTab('zone-monitor')">
+      <i data-lucide="map-pin"></i> Zone Monitor
+    </button>
+    <button class="nav-item" id="nav-face-db" onclick="openFaceDbModal()">
+      <i data-lucide="users"></i> Database Wajah
+    </button>
   </div>
   <div class="sidebar-footer">
     <div class="sidebar-clock">
@@ -2249,10 +2255,11 @@ code, pre, .mono, .font-mono,
 
             <!-- Single view -->
             <div id="single-view">
-              <div class="feed-wrap" id="feed-wrap">
+              <div class="feed-wrap" id="feed-wrap" style="position:relative;">
                 <div class="shutter" id="shutter"></div>
                 <iframe id="feed-iframe" src="" class="feed-iframe" allowfullscreen allow="autoplay"></iframe>
                 <img id="feed-img" src="" class="feed-img" style="display:none;background:#000;">
+                <canvas id="ai-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;display:none;"></canvas>
                 <div class="hud-tr">
                   <span class="hud-chip"><span class="rec-dot"></span>REC</span>
                   <span class="hud-chip" id="hud-cam-id">CAM-01</span>
@@ -2382,6 +2389,7 @@ code, pre, .mono, .font-mono,
                   <option value="none">Matikan Analitik AI</option>
                   <option value="face">Deteksi Wajah (Face Recognition)</option>
                   <option value="attribute">Atribut Pakaian &amp; Objek Umum</option>
+                  <option value="vehicle">Tracking &amp; Penghitungan Kendaraan</option>
                   <option value="drowsiness">Deteksi Kantuk (EAR)</option>
                   <option value="pose">Pose Estimation &amp; Human Tracking</option>
                 </select>
@@ -2394,6 +2402,8 @@ code, pre, .mono, .font-mono,
                 </div>
               </div>
               <div class="ai-console" id="ai-console">Menunggu data analitik...</div>
+              
+
             </div>
           </div>
 
@@ -2407,19 +2417,19 @@ code, pre, .mono, .font-mono,
               <div class="ptz-wrap">
                 <div class="ptz-dpad">
                   <div></div>
-                  <button class="ptz-btn" onmousedown="startPTZ('up')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><i data-lucide="chevron-up"></i></button>
+                  <button class="ptz-btn" onmousedown="startPTZ('up')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()" ontouchstart="event.preventDefault();startPTZ('up')" ontouchend="event.preventDefault();stopPTZ()"><i data-lucide="chevron-up"></i></button>
                   <div></div>
-                  <button class="ptz-btn" onmousedown="startPTZ('left')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><i data-lucide="chevron-left"></i></button>
+                  <button class="ptz-btn" onmousedown="startPTZ('left')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()" ontouchstart="event.preventDefault();startPTZ('left')" ontouchend="event.preventDefault();stopPTZ()"><i data-lucide="chevron-left"></i></button>
                   <div class="ptz-center"><i data-lucide="move"></i></div>
-                  <button class="ptz-btn" onmousedown="startPTZ('right')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><i data-lucide="chevron-right"></i></button>
+                  <button class="ptz-btn" onmousedown="startPTZ('right')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()" ontouchstart="event.preventDefault();startPTZ('right')" ontouchend="event.preventDefault();stopPTZ()"><i data-lucide="chevron-right"></i></button>
                   <div></div>
-                  <button class="ptz-btn" onmousedown="startPTZ('down')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><i data-lucide="chevron-down"></i></button>
+                  <button class="ptz-btn" onmousedown="startPTZ('down')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()" ontouchstart="event.preventDefault();startPTZ('down')" ontouchend="event.preventDefault();stopPTZ()"><i data-lucide="chevron-down"></i></button>
                   <div></div>
                 </div>
                 <div class="ptz-zoom">
-                  <button class="ptz-zoom-btn" onmousedown="startPTZ('zoom_out')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><span class="font-mono" style="font-size:13px; font-weight:600;">−</span></button>
+                  <button class="ptz-zoom-btn" onmousedown="startPTZ('zoom_out')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()" ontouchstart="event.preventDefault();startPTZ('zoom_out')" ontouchend="event.preventDefault();stopPTZ()"><span class="font-mono" style="font-size:13px; font-weight:600;">−</span></button>
                   <span class="ptz-zoom-label">ZOOM</span>
-                  <button class="ptz-zoom-btn" onmousedown="startPTZ('zoom_in')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()"><span class="font-mono" style="font-size:13px; font-weight:600;">+</span></button>
+                  <button class="ptz-zoom-btn" onmousedown="startPTZ('zoom_in')" onmouseup="stopPTZ()" onmouseleave="stopPTZ()" ontouchstart="event.preventDefault();startPTZ('zoom_in')" ontouchend="event.preventDefault();stopPTZ()"><span class="font-mono" style="font-size:13px; font-weight:600;">+</span></button>
                 </div>
               </div>
             </div>
@@ -2508,6 +2518,73 @@ code, pre, .mono, .font-mono,
       </div>
     </div>
 
+    </div>
+
+    <!-- ── Zone Monitor Tab ──────────────────────────────────── -->
+    <div class="tab-pane" id="tab-zone-monitor">
+      <div style="padding: 20px; max-width: 1100px; margin: 0 auto;">
+
+        <!-- Header Row -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+          <div>
+            <div style="font-size:18px; font-weight:700; color:var(--text); display:flex; align-items:center; gap:8px;">
+              <i data-lucide="map-pin" style="color:var(--accent);width:20px;height:20px;"></i>
+              Multi-Area Zone Monitoring
+            </div>
+            <div style="font-size:12px; color:var(--text-3); margin-top:3px;">Pantau kehadiran orang per zona — notifikasi Telegram otomatis setiap jam bulat</div>
+          </div>
+          <div style="display:flex; gap:10px;">
+            <button class="btn" id="btn-test-telegram" onclick="testTelegramZone()">
+              <i data-lucide="send" style="width:14px;height:14px;"></i> Test Telegram
+            </button>
+            <button class="btn btn-primary" onclick="openZoneDrawer()">
+              <i data-lucide="plus" style="width:14px;height:14px;"></i> Tambah Zona
+            </button>
+          </div>
+        </div>
+
+        <!-- Status Cards Grid -->
+        <div id="zone-status-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px,1fr)); gap:14px; margin-bottom:24px;">
+          <div style="background:var(--surface-2); border:1px dashed var(--border); border-radius:12px; padding:24px; text-align:center; color:var(--text-3); font-size:13px;">
+            <i data-lucide="map-pin" style="width:32px;height:32px;margin:0 auto 10px;display:block;opacity:0.3;"></i>
+            Belum ada zona terkonfigurasi.<br>Klik <b>Tambah Zona</b> untuk mulai.
+          </div>
+        </div>
+
+        <!-- History Table -->
+        <div class="console-card">
+          <div class="console-card-header">
+            <div>
+              <div class="console-card-title">Riwayat Event Zona</div>
+              <div class="console-card-sub">Log evaluasi per siklus jam — termasuk alert yang dikirim ke Telegram</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="zone-history-filter" class="form-select" style="width:180px;font-size:12px;" onchange="fetchZoneHistory()">
+                <option value="">Semua Zona</option>
+              </select>
+              <button class="btn" onclick="fetchZoneHistory()">
+                <i data-lucide="refresh-cw" style="width:13px;height:13px;"></i> Segarkan
+              </button>
+            </div>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="data-table" style="min-width:700px;">
+              <thead>
+                <tr>
+                  <th>#</th><th>Siklus Jam</th><th>Zona</th><th>Kamera</th>
+                  <th>Akumulasi</th><th>Threshold</th><th>Status</th><th>Telegram</th>
+                </tr>
+              </thead>
+              <tbody id="zone-history-tbody">
+                <tr><td colspan="8" style="text-align:center;color:var(--text-3);padding:20px;">Memuat riwayat...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- ── Drowsiness Tab ────────────────────────────────────── -->
     <div class="tab-pane" id="tab-drowsiness">
       <div class="console-card" style="height:calc(100vh - 96px);">
@@ -2548,6 +2625,150 @@ code, pre, .mono, .font-mono,
       <i data-lucide="save" id="save-icon"></i>
       <span id="save-label">Simpan &amp; Terapkan</span>
     </button>
+  </div>
+</div>
+
+<!-- ── Zone Drawing Drawer ──────────────────────────────────── -->
+<div class="overlay" id="zone-overlay" onclick="closeZoneDrawer()"></div>
+<div class="drawer" id="zone-drawer" style="width:600px;max-width:100vw;">
+  <div class="drawer-head">
+    <div>
+      <div class="drawer-title" style="display:flex;align-items:center;gap:8px;">
+        <i data-lucide="map-pin" style="color:var(--accent);width:20px;height:20px;"></i>
+        Konfigurasi Zona Monitor
+      </div>
+      <div class="drawer-sub">Gambar area zona di frame kamera, atur threshold kehadiran minimal</div>
+    </div>
+    <button class="drawer-close" onclick="closeZoneDrawer()">&times;</button>
+  </div>
+  <div class="drawer-body" style="padding:20px; overflow-y:auto;">
+
+    <!-- Kamera Selector -->
+    <div style="margin-bottom:16px;">
+      <label class="form-label">Kamera Target</label>
+      <select class="form-select" id="zone-cam-select" onchange="loadZoneCanvasPreview()">
+      </select>
+    </div>
+
+    <!-- Canvas Area -->
+    <div style="margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <label class="form-label" style="margin:0;">Gambar Zona di Frame</label>
+        <div style="display:flex;gap:6px;">
+          <button class="btn" onclick="zoneCanvasUndo()" title="Undo titik terakhir" style="padding:5px 10px;font-size:11px;">
+            <i data-lucide="undo" style="width:13px;height:13px;"></i> Undo
+          </button>
+          <button class="btn" onclick="zoneCanvasClear()" title="Hapus gambar" style="padding:5px 10px;font-size:11px;">
+            <i data-lucide="trash-2" style="width:13px;height:13px;"></i> Clear
+          </button>
+        </div>
+      </div>
+      <div style="position:relative; background:#111; border-radius:10px; overflow:hidden; border:1px solid var(--border);">
+        <img id="zone-preview-img" src="" alt="" style="width:100%; display:block; opacity:0.6;">
+        <canvas id="zone-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;cursor:crosshair;"></canvas>
+        <div id="zone-canvas-hint" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.6);font-size:12px;text-align:center;pointer-events:none;">
+          <i data-lucide="mouse-pointer-2" style="width:20px;height:20px;display:block;margin:0 auto 6px;"></i>
+          Klik untuk menambah titik zona<br><span style="font-size:10px;">Minimal 3 titik • Double-klik untuk selesai</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:6px;">
+        💡 Klik di canvas untuk menambah titik polygon zona. Double-klik titik pertama atau tombol ✓ Selesai untuk menutup polygon.
+      </div>
+    </div>
+
+    <!-- Zone Properties -->
+    <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px;">
+      <div style="font-size:12px; font-weight:700; color:var(--text); margin-bottom:12px;">Properti Zona</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div>
+          <label class="form-label">Nama Zona *</label>
+          <input type="text" id="zone-name-input" class="form-input" placeholder="Contoh: Meja Kerja A" style="width:100%;">
+        </div>
+        <div>
+          <label class="form-label">Threshold Kehadiran (menit/jam)</label>
+          <input type="number" id="zone-threshold-input" class="form-input" value="15" min="1" max="59" style="width:100%;">
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text);">
+          <input type="checkbox" id="zone-telegram-enabled" checked style="width:15px;height:15px;cursor:pointer;">
+          Aktifkan notifikasi Telegram untuk zona ini
+        </label>
+      </div>
+    </div>
+
+    <!-- Existing Zones for this Camera -->
+    <div>
+      <div style="font-size:12px; font-weight:700; color:var(--text); margin-bottom:10px;">Zona Terdaftar untuk Kamera Ini</div>
+      <div id="zone-list-drawer" style="display:flex; flex-direction:column; gap:8px;">
+        <div style="color:var(--text-3); font-size:12px;">Memuat...</div>
+      </div>
+    </div>
+
+  </div>
+  <div class="drawer-footer">
+    <button class="btn-cancel-main" onclick="closeZoneDrawer()">Tutup</button>
+    <button class="btn-save-main" onclick="saveZone()">
+      <i data-lucide="save" style="width:15px;height:15px;"></i>
+      <span>Simpan Zona</span>
+    </button>
+  </div>
+</div>
+
+<!-- ── Database Wajah Drawer ───────────────────────────────────── -->
+<div class="drawer" id="facedb-drawer" style="width: 520px; max-width: 90vw;">
+  <div class="drawer-head">
+    <div>
+      <div class="drawer-title" style="display:flex;align-items:center;gap:8px;">
+        <i data-lucide="users" style="color:var(--accent);width:20px;height:20px;"></i>
+        Database Wajah
+      </div>
+      <div class="drawer-sub">Kelola daftar wajah terdaftar untuk pengenalan nama di mode Deteksi Wajah</div>
+    </div>
+    <button class="drawer-close" onclick="closeFaceDbModal()">&times;</button>
+  </div>
+  <div class="drawer-body" style="padding: 20px;">
+    
+    <!-- Form Registrasi Wajah Baru -->
+    <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:20px;">
+      <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+        <i data-lucide="user-plus" style="width:15px;height:15px;color:var(--accent);"></i>
+        Tambah / Daftarkan Wajah Baru
+      </div>
+      <form id="form-register-face" onsubmit="handleFaceRegister(event)">
+        <div style="margin-bottom:12px;">
+          <label style="font-size:11px; font-weight:600; color:var(--text-2); display:block; margin-bottom:4px;">Nama Orang / Operator *</label>
+          <input type="text" id="face-name-input" placeholder="Contoh: Nabiel" required style="width:100%; padding:9px 12px; font-size:13px; border:1px solid var(--border); border-radius:8px; outline:none; background:var(--surface); color:var(--text);">
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="font-size:11px; font-weight:600; color:var(--text-2); display:block; margin-bottom:4px;">Upload Foto Wajah (Pilih 1 atau lebih foto) *</label>
+          <input type="file" id="face-photos-input" accept="image/*" multiple required style="width:100%; font-size:12px; color:var(--text-2);">
+          <div style="font-size:10px; color:var(--text-3); margin-top:4px;">Disarankan foto wajah tampak depan dengan pencahayaan terang.</div>
+        </div>
+        <button type="submit" id="btn-submit-face" style="width:100%; padding:10px; background:var(--accent); color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;">
+          <i data-lucide="user-check" style="width:15px;height:15px;"></i>
+          <span id="btn-submit-face-txt">Daftarkan Wajah</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- List Wajah Terdaftar -->
+    <div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="font-size:13px; font-weight:700; color:var(--text); display:flex; align-items:center; gap:6px;">
+          <i data-lucide="id-card" style="width:15px;height:15px;color:var(--green-text);"></i>
+          Daftar Wajah Terdaftar (<span id="facedb-count">0</span>)
+        </div>
+        <button onclick="loadFaceDatabase()" style="background:transparent; border:none; color:var(--accent); font-size:11px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:4px;">
+          <i data-lucide="refresh-cw" style="width:12px;height:12px;"></i> Segarkan
+        </button>
+      </div>
+
+      <div id="facedb-list-wrap" style="max-height:300px; overflow-y:auto; border:1px solid var(--border); border-radius:10px; background:var(--surface);">
+        <!-- Dynamic content filled by JS -->
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -2731,9 +2952,9 @@ function switchCamera(camId){
   document.getElementById('d-bitrate').textContent='Memuat...';
   document.getElementById('d-uptime').textContent='—';
 
-  // PTZ card visibility
+  // PTZ card visibility — always visible
   const ptzCard=document.getElementById('ptz-card');
-  if(ptzCard) ptzCard.style.display=cam.onvifPort?'block':'none';
+  if(ptzCard) ptzCard.style.display='block';
 
   // Load stream — do NOT remount element, just change src
   const go2Host=`http://${location.hostname}:1984`;
@@ -2983,49 +3204,14 @@ async function changeAIMode(mode){
 
 async function updateAISelectionDropdown(){
   try{
-    const r=await fetch('/api/ai/modes');
-    if(!r.ok) return;
-    const activeModes=await r.json();
-    
-    let activeAICount = 0;
-    for (const [cid, m] of Object.entries(activeModes)) {
-      if (parseInt(cid) !== activeCamId && m !== 'none') {
-        activeAICount++;
-      }
-    }
-    
     const sel=document.getElementById('ai-mode-select');
     const warn=document.getElementById('ai-limit-warning');
+    if(warn) warn.style.display = 'none';
     if(sel){
-      const currentVal = activeModes[activeCamId] || 'none';
-      const isLimitReached = activeAICount >= 2;
-      const isCurrentNone = currentVal === 'none';
-      
       for(let i=0; i<sel.options.length; i++){
         const opt = sel.options[i];
-        if(opt.value === 'none'){
-          opt.disabled = false;
-          continue;
-        }
-        
-        if(isLimitReached && isCurrentNone){
-          opt.disabled = true;
-          if(!opt.text.includes('(Limit Tercapai)')){
-            opt.text = opt.text.split(' (')[0] + ' (Limit Tercapai)';
-          }
-        } else {
-          opt.disabled = false;
-          opt.text = getOriginalAILabel(opt.value);
-        }
-      }
-      
-      if(warn){
-        if(isLimitReached && isCurrentNone){
-          warn.style.display = 'block';
-          warn.textContent = 'Maksimal 2 kamera aktif AI tercapai. Nonaktifkan AI di kamera lain terlebih dahulu.';
-        } else {
-          warn.style.display = 'none';
-        }
+        opt.disabled = false;
+        opt.text = getOriginalAILabel(opt.value);
       }
     }
   }catch(e){
@@ -3037,6 +3223,7 @@ function getOriginalAILabel(m){
   return {
     face: 'Deteksi Wajah (Face Recognition)',
     attribute: 'Atribut Pakaian & Objek Umum',
+    vehicle: 'Tracking & Penghitungan Kendaraan',
     sop: 'Kepatuhan SOP (Timer ROI)',
     contraflow: 'Deteksi Arah (Contraflow)',
     drowsiness: 'Deteksi Kantuk (EAR)',
@@ -3045,7 +3232,7 @@ function getOriginalAILabel(m){
 }
 
 function getAILabel(m){
-  return{none:'Nonaktif',face:'Deteksi Wajah',attribute:'Atribut Pakaian',sop:'Kepatuhan SOP',contraflow:'Deteksi Arah',drowsiness:'Deteksi Kantuk',pose:'Pose Estimation'}[m]||m;
+  return{none:'Nonaktif',face:'Deteksi Wajah',attribute:'Atribut Pakaian',vehicle:'Tracking Kendaraan',sop:'Kepatuhan SOP',contraflow:'Deteksi Arah',drowsiness:'Deteksi Kantuk',pose:'Pose Estimation'}[m]||m;
 }
 
 function toggleAIStream(on){
@@ -3055,49 +3242,39 @@ function toggleAIStream(on){
   const reloadOverlay=document.getElementById('reload-overlay');
   const go2Host=`http://${location.hostname}:1984`;
   
-  // Show loading indicator
   if(reloadOverlay){
     reloadOverlay.classList.add('visible');
   }
   
-  // If turning on but mode is none, auto-select face
   if(on&&aiMode==='none'){
     const sel=document.getElementById('ai-mode-select');
     if(sel){sel.value='face';changeAIMode('face');return;}
   }
   
   if(on){
-    // Switch to AI stream
+    // Display Python AI Stream with OpenVINO bounding boxes drawn directly on frame
     feedIframe.style.display='none';
     feedIframe.src='';
     feedImg.style.display='block';
-    
-    // Set src directly
     const aiStreamUrl = `/api/ai/stream?cam_id=${activeCamId}&_=${Date.now()}`;
     feedImg.src = aiStreamUrl;
-    
-    // Hide loading overlay after a short delay to allow stream to connect
-    setTimeout(()=>{
-      if(reloadOverlay) reloadOverlay.classList.remove('visible');
-    }, 800);
-    
+    startAIPolling();
   }else{
-    // Switch back to normal stream
+    // Display raw 60Hz WebRTC Stream when AI is OFF
     feedImg.style.display='none';
     feedImg.src='';
     feedIframe.style.display='block';
     feedIframe.src=`${go2Host}/stream.html?src=camera_${activeCamId}&mode=webrtc&buffer=0&media=video,audio`;
-    
-    // Hide loading after short delay
-    setTimeout(()=>{
-      if(reloadOverlay) reloadOverlay.classList.remove('visible');
-    }, 800);
   }
+
+  setTimeout(()=>{
+    if(reloadOverlay) reloadOverlay.classList.remove('visible');
+  }, 400);
 }
 
 function startAIPolling(){
   if(aiInterval) clearInterval(aiInterval);
-  aiInterval=setInterval(fetchAIMeta,600);
+  aiInterval=setInterval(fetchAIMeta, 80); // ~12.5 FPS fast metadata polling
 }
 
 async function fetchAIMeta(){
@@ -3105,8 +3282,99 @@ async function fetchAIMeta(){
   try{
     const r=await fetch(`/api/ai/${activeCamId}/metadata`);
     if(!r.ok) return;
-    renderAIMeta(await r.json());
+    const data = await r.json();
+    renderAIMeta(data);
+    drawAICanvas(data);
   }catch(e){}
+}
+
+function drawAICanvas(d){
+  const canvas = document.getElementById('ai-canvas');
+  if(!canvas) return;
+  const wrap = document.getElementById('feed-wrap');
+  if(!wrap) return;
+  
+  if(canvas.width !== wrap.clientWidth || canvas.height !== wrap.clientHeight){
+    canvas.width = wrap.clientWidth;
+    canvas.height = wrap.clientHeight;
+  }
+  
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if(!d || !showAI || aiMode === 'none') return;
+  
+  const fw = d.frame_width || 640.0;
+  const fh = d.frame_height || 360.0;
+  const scaleX = canvas.width / fw;
+  const scaleY = canvas.height / fh;
+  
+  // 1. MODE: VEHICLE / ATTRIBUTE / SOP / CONTRAFLOW -> ONLY draw Tracked Vehicles / Bounding Boxes
+  if(aiMode === 'vehicle' || aiMode === 'attribute' || aiMode === 'sop' || aiMode === 'contraflow'){
+    const tracked = d.tracked_objects || [];
+    tracked.forEach(obj => {
+      const x1 = obj[0] * scaleX;
+      const y1 = obj[1] * scaleY;
+      const w = (obj[2] - obj[0]) * scaleX;
+      const h = (obj[3] - obj[1]) * scaleY;
+      const label = `ID #${obj[6] || 1} (${Math.round((obj[5] || 0.8) * 100)}%)`;
+      
+      ctx.strokeStyle = '#00ff88';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x1, y1, w, h);
+      
+      ctx.fillStyle = 'rgba(0, 255, 136, 0.9)';
+      ctx.fillRect(x1, Math.max(0, y1 - 22), Math.max(90, label.length * 8), 22);
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText(label, x1 + 6, Math.max(14, y1 - 6));
+    });
+  }
+  
+  // 2. MODE: POSE -> ONLY draw Pose Skeleton
+  if(aiMode === 'pose'){
+    const poseData = d.pose_data || [];
+    const connections = [[0,1],[1,3],[0,2],[2,4],[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+    poseData.forEach(p => {
+      const kps = p.keypoints || [];
+      connections.forEach(([i, j]) => {
+        if(kps[i] && kps[j] && kps[i][2] > 0.3 && kps[j][2] > 0.3){
+          ctx.strokeStyle = '#00e5ff';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(kps[i][0] * scaleX, kps[i][1] * scaleY);
+          ctx.lineTo(kps[j][0] * scaleX, kps[j][1] * scaleY);
+          ctx.stroke();
+        }
+      });
+      kps.forEach(kp => {
+        if(kp[2] > 0.3){
+          ctx.fillStyle = '#ff0055';
+          ctx.beginPath();
+          ctx.arc(kp[0] * scaleX, kp[1] * scaleY, 4, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      });
+    });
+  }
+  
+  // 3. MODE: FACE -> ONLY draw Face Detections
+  if(aiMode === 'face' && d.faces && d.faces.length){
+    d.faces.forEach(f => {
+      const x = f[0] * scaleX;
+      const y = f[1] * scaleY;
+      const w = f[2] * scaleX;
+      const h = f[3] * scaleY;
+      const name = f[4] || 'Wajah';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.9)';
+      ctx.fillRect(x, Math.max(0, y - 24), Math.max(90, name.length * 9), 24);
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText(name, x + 6, Math.max(14, y - 7));
+    });
+  }
 }
 
 function renderAIMeta(d){
@@ -3127,6 +3395,17 @@ function renderAIMeta(d){
       lines.push(`  ${i+1}. ${o.class} ${Math.round((o.conf||0)*100)}%`);
       (o.attributes||[]).forEach(a=>lines.push(`     ↳ ${a}`));
     });}
+  }else if(aiMode==='vehicle'){
+    const vc=d.vehicle_counts||{};
+    const curr=d.current_in_frame||{};
+    lines.push(`[KUMULATIF UNIK MELINTAS]`);
+    lines.push(`  • Mobil : ${vc['Mobil']||0}`);
+    lines.push(`  • Motor : ${vc['Motor']||0}`);
+    lines.push(`  • Truk  : ${vc['Truk']||0}`);
+    lines.push(`  • Bus   : ${vc['Bus']||0}`);
+    if(vc['Sepeda']) lines.push(`  • Sepeda: ${vc['Sepeda']}`);
+    if(vc['Orang'])  lines.push(`  • Pejalan: ${vc['Orang']}`);
+    lines.push(`[DI FRAME: ${d.people_count||0} orang / ${(curr['Mobil']||0)+(curr['Motor']||0)+(curr['Truk']||0)+(curr['Bus']||0)} kendaraan]`);
   }else if(aiMode==='drowsiness'){
     const drowsy=d.drowsiness_status==='Mengantuk';
     lines.push(`[STATUS] ${drowsy?'⚠ MENGANTUK!':'Normal'}`);
@@ -3462,23 +3741,43 @@ function goFullscreen(){
 //  PTZ
 // ═══════════════════════════════════════════════════════════════
 let activePTZ=null;
+let ptzStartTime=0;
+let ptzStopTimeout=null;
+
 async function startPTZ(dir){
+  if(ptzStopTimeout){clearTimeout(ptzStopTimeout);ptzStopTimeout=null;}
   activePTZ=dir;
+  ptzStartTime=Date.now();
   const b=document.getElementById('ptz-badge');
   if(b){b.className='badge badge-red';b.textContent='BERGERAK';}
   try{
-    const r=await fetch(`/api/ptz/${activeCamId}/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:dir,speed:.5})});
+    const r=await fetch(`/api/ptz/${activeCamId}/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:dir,speed:.8})});
     const d=await r.json();
-    if(!d.success){toast(d.message||'PTZ gagal','error');stopPTZ();}
-  }catch(e){toast('PTZ tidak terjangkau','error');stopPTZ();}
+    if(!d.success){toast(d.message||'PTZ gagal','error');stopPTZImmediate();}
+  }catch(e){toast('PTZ tidak terjangkau','error');stopPTZImmediate();}
 }
+
 async function stopPTZ(){
   if(!activePTZ) return;
+  const elapsed=Date.now()-ptzStartTime;
+  const minDuration=500; // Minimum 500ms motor move pulse for single clicks
+  if(elapsed<minDuration){
+    ptzStopTimeout=setTimeout(()=>{ stopPTZImmediate(); }, minDuration-elapsed);
+  }else{
+    stopPTZImmediate();
+  }
+}
+
+async function stopPTZImmediate(){
+  if(!activePTZ) return;
   activePTZ=null;
+  if(ptzStopTimeout){clearTimeout(ptzStopTimeout);ptzStopTimeout=null;}
   const b=document.getElementById('ptz-badge');
   if(b){b.className='badge badge-green';b.textContent='SIAP';}
   try{await fetch(`/api/ptz/${activeCamId}/stop`,{method:'POST',headers:{'Content-Type':'application/json'}});}catch(e){}
 }
+
+
 
 // ═══════════════════════════════════════════════════════════════
 //  SYSTEM LOGS
@@ -3732,6 +4031,615 @@ async function saveConfig(){
     else toast(d.message||'Gagal menyimpan','error');
   }catch(e){toast('Gagal komunikasi server','error');}
   finally{btn.disabled=false;if(spin)spin.style.display='none';if(ic)ic.style.display='';if(lbl)lbl.textContent='Simpan & Terapkan';}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DATABASE WAJAH MODAL & API HANDLERS
+// ═══════════════════════════════════════════════════════════════
+function openFaceDbModal() {
+  const drawer = document.getElementById('facedb-drawer');
+  const overlay = document.getElementById('overlay');
+  if (drawer && overlay) {
+    drawer.classList.add('open');
+    overlay.classList.add('active');
+    loadFaceDatabase();
+  }
+}
+
+function closeFaceDbModal() {
+  const drawer = document.getElementById('facedb-drawer');
+  const overlay = document.getElementById('overlay');
+  if (drawer && overlay) {
+    drawer.classList.remove('open');
+    overlay.classList.remove('active');
+  }
+}
+
+async function loadFaceDatabase() {
+  const listWrap = document.getElementById('facedb-list-wrap');
+  const countTxt = document.getElementById('facedb-count');
+  if (!listWrap) return;
+  
+  listWrap.innerHTML = `<div style="padding:20px; text-align:center; font-size:12px; color:var(--text-3);">Memuat data wajah...</div>`;
+  
+  try {
+    const res = await fetch('/api/faces/list');
+    const json = await res.json();
+    if (json.status === 'success') {
+      const faces = json.data || [];
+      if (countTxt) countTxt.textContent = faces.length;
+      
+      if (faces.length === 0) {
+        listWrap.innerHTML = `
+          <div style="padding:30px 16px; text-align:center; color:var(--text-3);">
+            <i data-lucide="user-x" style="width:32px;height:32px;margin-bottom:8px;opacity:0.4;"></i>
+            <div style="font-size:13px; font-weight:600;">Belum Ada Wajah Terdaftar</div>
+            <div style="font-size:11px; margin-top:4px;">Gunakan form di atas untuk mendaftarkan wajah operator/personel.</div>
+          </div>
+        `;
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+
+      let html = `<div style="display:flex; flex-direction:column;">`;
+      faces.forEach(f => {
+        const dateStr = f.created_at ? new Date(f.created_at).toLocaleString('id-ID') : 'Baru saja';
+        html += `
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border);">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <img src="${f.image_path}" alt="${f.name}" style="width:42px; height:42px; border-radius:8px; object-fit:cover; border:1px solid var(--border); background:var(--surface-2);" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'42\\' height=\\'42\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%23888\\' stroke-width=\\'2\\'><path d=\\'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\\'/><circle cx=\\'12\\' cy=\\'7\\' r=\\'4\\'/></svg>'">
+              <div>
+                <div style="font-size:13px; font-weight:700; color:var(--text);">${f.name}</div>
+                <div style="font-size:10px; color:var(--text-3); margin-top:2px;">ID #${f.id} • ${dateStr}</div>
+              </div>
+            </div>
+            <button onclick="deleteFaceRecord(${f.id})" style="padding:6px 10px; background:var(--red-light); color:var(--red-text); border:1px solid var(--red-border); border-radius:6px; font-size:11px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:4px;">
+              <i data-lucide="trash-2" style="width:12px;height:12px;"></i> Hapus
+            </button>
+          </div>
+        `;
+      });
+      html += `</div>`;
+      listWrap.innerHTML = html;
+      if (window.lucide) lucide.createIcons();
+    }
+  } catch(e) {
+    listWrap.innerHTML = `<div style="padding:16px; color:var(--red-text); font-size:12px; text-align:center;">Gagal memuat database wajah: ${e.message}</div>`;
+  }
+}
+
+async function handleFaceRegister(e) {
+  e.preventDefault();
+  const nameInput = document.getElementById('face-name-input');
+  const photosInput = document.getElementById('face-photos-input');
+  const submitBtn = document.getElementById('btn-submit-face');
+  const submitTxt = document.getElementById('btn-submit-face-txt');
+  
+  if (!nameInput.value.trim() || !photosInput.files.length) {
+    toast('Mohon isi nama dan pilih minimal 1 foto wajah.', 'error');
+    return;
+  }
+  
+  const formData = new FormData();
+  formData.append('name', nameInput.value.trim());
+  for (let i = 0; i < photosInput.files.length; i++) {
+    formData.append('photos', photosInput.files[i]);
+  }
+  
+  if (submitBtn) submitBtn.disabled = true;
+  if (submitTxt) submitTxt.textContent = 'Mengekstrak Wajah...';
+  
+  try {
+    const res = await fetch('/api/faces/register', {
+      method: 'POST',
+      body: formData
+    });
+    const json = await res.json();
+    if (res.ok && json.status === 'success') {
+      toast(json.message || 'Wajah berhasil didaftarkan!', 'success');
+      nameInput.value = '';
+      photosInput.value = '';
+      loadFaceDatabase();
+    } else {
+      toast(json.detail || json.message || 'Gagal memproses foto wajah.', 'error');
+    }
+  } catch(err) {
+    toast('Gagal terhubung ke server: ' + err.message, 'error');
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+    if (submitTxt) submitTxt.textContent = 'Daftarkan Wajah';
+  }
+}
+
+async function deleteFaceRecord(id) {
+  if (!confirm('Apakah Anda yakin ingin menghapus data wajah ini dari database?')) return;
+  try {
+    const res = await fetch(`/api/faces/${id}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (res.ok && json.status === 'success') {
+      toast('Data wajah berhasil dihapus.', 'success');
+      loadFaceDatabase();
+    } else {
+      toast(json.detail || 'Gagal menghapus data wajah.', 'error');
+    }
+  } catch(err) {
+    toast('Error: ' + err.message, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ZONE MONITOR — State & Constants
+// ═══════════════════════════════════════════════════════════════
+let zonePoints = [];          // Array of {x_norm, y_norm} being drawn
+let zonePolygonClosed = false;
+let zoneEditingId = null;     // null = new zone, string = editing existing
+let zoneStatusInterval = null;
+let zoneAllZones = [];        // All zones from API (for history filter)
+
+const ZONE_COLORS = [
+  '#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6',
+  '#EC4899','#06B6D4','#84CC16','#F97316','#6366F1'
+];
+
+function zoneColor(idx) { return ZONE_COLORS[idx % ZONE_COLORS.length]; }
+
+// ── switchTab augmentation: handle zone-monitor tab
+const _origSwitchTab = window.switchTab;
+function switchTab(tab) {
+  if (_origSwitchTab) _origSwitchTab(tab);
+
+  // Stop/start zone status polling based on tab
+  if (tab === 'zone-monitor') {
+    fetchZoneStatus();
+    fetchZoneHistory();
+    if (!zoneStatusInterval) {
+      zoneStatusInterval = setInterval(fetchZoneStatus, 8000);
+    }
+  } else {
+    if (zoneStatusInterval) {
+      clearInterval(zoneStatusInterval);
+      zoneStatusInterval = null;
+    }
+  }
+}
+
+// ── Open Zone Drawer
+function openZoneDrawer(editZoneId = null) {
+  zoneEditingId = editZoneId;
+  zonePoints = [];
+  zonePolygonClosed = false;
+
+  // Populate camera selector
+  const sel = document.getElementById('zone-cam-select');
+  sel.innerHTML = cameras.map(c =>
+    `<option value="${c.id}">${c.name} (cam_${c.id})</option>`
+  ).join('');
+  // Set to active camera if available
+  if (activeCamId !== null) sel.value = activeCamId;
+
+  // Clear inputs
+  document.getElementById('zone-name-input').value = '';
+  document.getElementById('zone-threshold-input').value = 15;
+  document.getElementById('zone-telegram-enabled').checked = true;
+
+  // If editing, load existing zone data
+  if (editZoneId) {
+    const zone = zoneAllZones.find(z => z.zone_id === editZoneId);
+    if (zone) {
+      sel.value = zone.cam_id;
+      document.getElementById('zone-name-input').value = zone.name;
+      document.getElementById('zone-threshold-input').value = zone.threshold_minutes;
+      document.getElementById('zone-telegram-enabled').checked = zone.telegram_enabled;
+      // Restore polygon points
+      zonePoints = zone.coords.map(p => ({x: p[0], y: p[1]}));
+      zonePolygonClosed = zonePoints.length >= 3;
+    }
+  }
+
+  loadZoneCanvasPreview();
+  loadZoneListDrawer();
+
+  document.getElementById('zone-overlay').classList.add('open');
+  document.getElementById('zone-drawer').classList.add('open');
+  if (window.lucide) lucide.createIcons();
+}
+
+function closeZoneDrawer() {
+  document.getElementById('zone-overlay').classList.remove('open');
+  document.getElementById('zone-drawer').classList.remove('open');
+  zonePoints = [];
+  zonePolygonClosed = false;
+  zoneEditingId = null;
+}
+
+// ── Load snapshot as canvas background
+async function loadZoneCanvasPreview() {
+  const camId = parseInt(document.getElementById('zone-cam-select').value);
+  const img = document.getElementById('zone-preview-img');
+  const canvas = document.getElementById('zone-canvas');
+
+  // Load snapshot
+  try {
+    const snapUrl = `/api/snapshot/${camId}?t=${Date.now()}`;
+    img.src = snapUrl;
+  } catch(e) {}
+
+  img.onload = () => {
+    canvas.width = img.naturalWidth || img.offsetWidth;
+    canvas.height = img.naturalHeight || img.offsetHeight;
+    zoneRedrawCanvas();
+    document.getElementById('zone-canvas-hint').style.display =
+      zonePoints.length === 0 ? 'block' : 'none';
+  };
+
+  // Setup canvas events
+  canvas.onclick = null;
+  canvas.ondblclick = null;
+  canvas.onclick = zoneCanvasClick;
+  canvas.ondblclick = zoneCanvasDblClick;
+
+  loadZoneListDrawer();
+}
+
+function zoneCanvasClick(e) {
+  if (zonePolygonClosed) return;
+  const canvas = document.getElementById('zone-canvas');
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = ((e.clientX - rect.left) * scaleX) / canvas.width;
+  const y = ((e.clientY - rect.top) * scaleY) / canvas.height;
+
+  // Check if clicking near first point to close polygon
+  if (zonePoints.length >= 3) {
+    const first = zonePoints[0];
+    const dx = Math.abs(first.x - x) * canvas.width;
+    const dy = Math.abs(first.y - y) * canvas.height;
+    if (dx < 15 && dy < 15) {
+      zonePolygonClosed = true;
+      zoneRedrawCanvas();
+      return;
+    }
+  }
+
+  zonePoints.push({x, y});
+  document.getElementById('zone-canvas-hint').style.display = 'none';
+  zoneRedrawCanvas();
+}
+
+function zoneCanvasDblClick(e) {
+  if (zonePoints.length >= 3) {
+    zonePolygonClosed = true;
+    zoneRedrawCanvas();
+  }
+}
+
+function zoneCanvasUndo() {
+  if (zonePolygonClosed) { zonePolygonClosed = false; }
+  else if (zonePoints.length > 0) { zonePoints.pop(); }
+  zoneRedrawCanvas();
+  document.getElementById('zone-canvas-hint').style.display =
+    zonePoints.length === 0 ? 'block' : 'none';
+}
+
+function zoneCanvasClear() {
+  zonePoints = [];
+  zonePolygonClosed = false;
+  zoneRedrawCanvas();
+  document.getElementById('zone-canvas-hint').style.display = 'block';
+}
+
+function zoneRedrawCanvas() {
+  const canvas = document.getElementById('zone-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (zonePoints.length === 0) return;
+
+  const pts = zonePoints.map(p => ({
+    px: p.x * canvas.width,
+    py: p.y * canvas.height
+  }));
+
+  ctx.beginPath();
+  ctx.moveTo(pts[0].px, pts[0].py);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].px, pts[i].py);
+  if (zonePolygonClosed) ctx.closePath();
+
+  ctx.strokeStyle = '#3B82F6';
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash(zonePolygonClosed ? [] : [6, 4]);
+  ctx.stroke();
+
+  if (zonePolygonClosed) {
+    ctx.fillStyle = 'rgba(59,130,246,0.18)';
+    ctx.fill();
+  }
+
+  // Draw points
+  pts.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(p.px, p.py, i === 0 ? 7 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = i === 0 ? '#10B981' : '#3B82F6';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([]);
+    ctx.stroke();
+  });
+}
+
+// ── Save Zone
+async function saveZone() {
+  const name = document.getElementById('zone-name-input').value.trim();
+  const threshold = parseInt(document.getElementById('zone-threshold-input').value) || 15;
+  const telegramEnabled = document.getElementById('zone-telegram-enabled').checked;
+  const camId = parseInt(document.getElementById('zone-cam-select').value);
+
+  if (!name) { toast('Nama zona wajib diisi.', 'error'); return; }
+  if (zonePoints.length < 3) { toast('Gambar minimal 3 titik untuk membentuk zona.', 'error'); return; }
+  if (!zonePolygonClosed) { toast('Tutup polygon dulu dengan double-klik atau klik titik awal.', 'error'); return; }
+
+  const zoneId = zoneEditingId || `cam${camId}_zone_${Date.now()}`;
+  const coords = zonePoints.map(p => [parseFloat(p.x.toFixed(4)), parseFloat(p.y.toFixed(4))]);
+
+  try {
+    const res = await fetch('/api/zones', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        zone_id: zoneId,
+        cam_id: camId,
+        name,
+        coords,
+        threshold_minutes: threshold,
+        telegram_enabled: telegramEnabled
+      })
+    });
+    const json = await res.json();
+    if (res.ok && json.success) {
+      toast(`Zona "${name}" berhasil disimpan!`, 'success');
+      zonePoints = [];
+      zonePolygonClosed = false;
+      zoneEditingId = null;
+      zoneRedrawCanvas();
+      document.getElementById('zone-canvas-hint').style.display = 'block';
+      document.getElementById('zone-name-input').value = '';
+      loadZoneListDrawer();
+      fetchZoneStatus();
+    } else {
+      toast(json.message || 'Gagal menyimpan zona.', 'error');
+    }
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+// ── Delete Zone
+async function deleteZone(zoneId, zoneName) {
+  if (!confirm(`Hapus zona "${zoneName}"? Aksi ini tidak bisa dibatalkan.`)) return;
+  try {
+    const res = await fetch(`/api/zones/${encodeURIComponent(zoneId)}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (res.ok && json.success) {
+      toast(`Zona "${zoneName}" dihapus.`, 'success');
+      loadZoneListDrawer();
+      fetchZoneStatus();
+    } else {
+      toast(json.detail || json.message || 'Gagal menghapus zona.', 'error');
+    }
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+// ── Load zone list inside drawer (for current camera)
+async function loadZoneListDrawer() {
+  const camId = parseInt(document.getElementById('zone-cam-select')?.value);
+  if (isNaN(camId)) return;
+  const listEl = document.getElementById('zone-list-drawer');
+  if (!listEl) return;
+
+  try {
+    const res = await fetch(`/api/zones?cam_id=${camId}`);
+    const json = await res.json();
+    const zones = json.data || [];
+
+    if (zones.length === 0) {
+      listEl.innerHTML = '<div style="color:var(--text-3);font-size:12px;padding:10px 0;">Belum ada zona untuk kamera ini.</div>';
+      return;
+    }
+
+    listEl.innerHTML = zones.map((z, i) => `
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px;
+           background:var(--surface); border:1px solid var(--border); border-radius:8px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:10px;height:10px;border-radius:50%;background:${zoneColor(i)};flex-shrink:0;"></div>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);">${z.name}</div>
+            <div style="font-size:10px;color:var(--text-3);">Min. ${z.threshold_minutes} menit/jam • ${z.telegram_enabled ? '🔔 Telegram aktif' : '🔕 Telegram off'}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button onclick="openZoneDrawer('${z.zone_id}')" style="padding:4px 8px; background:var(--accent-light); color:var(--accent); border:1px solid rgba(0,87,255,0.15); border-radius:6px; font-size:11px; font-weight:600; cursor:pointer;">
+            Edit
+          </button>
+          <button onclick="deleteZone('${z.zone_id}','${z.name}')" style="padding:4px 8px; background:var(--red-light); color:var(--red-text); border:1px solid var(--red-border); border-radius:6px; font-size:11px; font-weight:600; cursor:pointer;">
+            Hapus
+          </button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    listEl.innerHTML = `<div style="color:var(--red-text);font-size:12px;">Gagal memuat zona: ${e.message}</div>`;
+  }
+}
+
+// ── Fetch & render zone status cards
+async function fetchZoneStatus() {
+  const grid = document.getElementById('zone-status-grid');
+  if (!grid) return;
+
+  try {
+    const res = await fetch('/api/zones/status');
+    const json = await res.json();
+    const zones = json.data || [];
+    zoneAllZones = zones;
+
+    // Update history filter dropdown
+    const filterSel = document.getElementById('zone-history-filter');
+    if (filterSel) {
+      const currentVal = filterSel.value;
+      filterSel.innerHTML = '<option value="">Semua Zona</option>' +
+        zones.map(z => `<option value="${z.zone_id}">${z.name} (cam_${z.cam_id})</option>`).join('');
+      filterSel.value = currentVal;
+    }
+
+    if (zones.length === 0) {
+      grid.innerHTML = `
+        <div style="background:var(--surface-2); border:1px dashed var(--border); border-radius:12px; padding:24px; text-align:center; color:var(--text-3); font-size:13px;">
+          <i data-lucide="map-pin" style="width:32px;height:32px;margin:0 auto 10px;display:block;opacity:0.3;"></i>
+          Belum ada zona terkonfigurasi.<br>Klik <b>Tambah Zona</b> untuk mulai.
+        </div>`;
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
+
+    grid.innerHTML = zones.map((z, i) => {
+      const cycle = z.current_cycle || {};
+      const accum = parseFloat(cycle.accumulated_minutes || 0);
+      const threshold = z.threshold_minutes || 15;
+      const pct = Math.min(100, Math.round((accum / threshold) * 100));
+      const isPresent = cycle.is_person_present;
+      const isOk = accum >= threshold;
+
+      let statusColor = isOk ? 'var(--green)' : (pct >= 50 ? 'var(--amber)' : 'var(--red)');
+      let statusLabel = isOk ? '✅ Aman' : (pct >= 50 ? '⚠️ Perlu perhatian' : '🔴 Di bawah threshold');
+      let progressBg = isOk ? 'var(--green)' : (pct >= 50 ? 'var(--amber)' : 'var(--red)');
+
+      return `
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; position:relative; overflow:hidden;">
+          <div style="position:absolute;top:0;left:0;width:4px;height:100%;background:${zoneColor(i)};border-radius:4px 0 0 4px;"></div>
+          <div style="padding-left:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+              <div>
+                <div style="font-size:14px;font-weight:700;color:var(--text);">${z.name}</div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:2px;">📷 cam_${z.cam_id} • Threshold: ${threshold} mnt/jam</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+                ${isPresent ? '<span style="font-size:10px;background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:20px;font-weight:600;">● Hadir</span>' : '<span style="font-size:10px;background:#f1f5f9;color:#64748b;padding:2px 7px;border-radius:20px;">○ Tidak ada</span>'}
+              </div>
+            </div>
+
+            <div style="margin-bottom:8px;">
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-2);margin-bottom:5px;">
+                <span>Akumulasi jam ini</span>
+                <span style="font-weight:700;color:${statusColor};">${accum.toFixed(1)} / ${threshold} mnt</span>
+              </div>
+              <div style="background:var(--surface-2);border-radius:99px;height:6px;overflow:hidden;">
+                <div style="height:100%;width:${pct}%;background:${progressBg};border-radius:99px;transition:width 0.5s ease;"></div>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:11px;color:var(--text-3);">${cycle.hour_label || '—'}</span>
+              <span style="font-size:11px;font-weight:600;color:${statusColor};">${statusLabel}</span>
+            </div>
+
+            <div style="display:flex;gap:6px;margin-top:10px;">
+              <button onclick="openZoneDrawer('${z.zone_id}')" style="flex:1;padding:6px;background:var(--accent-light);color:var(--accent);border:1px solid rgba(0,87,255,0.15);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">
+                <i data-lucide="edit-2" style="width:11px;height:11px;"></i> Edit
+              </button>
+              <button onclick="deleteZone('${z.zone_id}','${z.name}')" style="flex:1;padding:6px;background:var(--red-light);color:var(--red-text);border:1px solid var(--red-border);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">
+                <i data-lucide="trash-2" style="width:11px;height:11px;"></i> Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    if (window.lucide) lucide.createIcons();
+  } catch(e) {
+    console.warn('[ZoneStatus] Error:', e);
+  }
+}
+
+// ── Fetch & render zone history
+async function fetchZoneHistory() {
+  const tbody = document.getElementById('zone-history-tbody');
+  if (!tbody) return;
+
+  const filterZone = document.getElementById('zone-history-filter')?.value || '';
+  const url = filterZone
+    ? `/api/zones/history?zone_id=${encodeURIComponent(filterZone)}&limit=100`
+    : '/api/zones/history?limit=100';
+
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+    const events = json.data || [];
+
+    if (events.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text-3);padding:20px;">Belum ada riwayat evaluasi zona.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = events.map((ev, i) => {
+      const alertTypeMap = {
+        'low_presence': ['⚠️ Kurang', 'var(--amber-text)', 'var(--amber-light)'],
+        'no_presence':  ['🚫 Kosong', 'var(--red-text)', 'var(--red-light)'],
+        null:           ['✅ Aman', 'var(--green-text)', 'var(--green-light)'],
+      };
+      const [label, textColor, bgColor] = alertTypeMap[ev.alert_type] || alertTypeMap[null];
+      const tgIcon = ev.telegram_sent ? '✅' : (ev.alert_type ? '❌' : '—');
+
+      return `
+        <tr>
+          <td style="color:var(--text-3);font-size:11px;">${ev.id}</td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:11px;">${ev.cycle_label}</td>
+          <td style="font-weight:600;">${ev.zone_name}</td>
+          <td>cam_${ev.cam_id}</td>
+          <td>${parseFloat(ev.accumulated_minutes).toFixed(1)} mnt</td>
+          <td>${ev.threshold_minutes} mnt</td>
+          <td><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;color:${textColor};background:${bgColor};">${label}</span></td>
+          <td style="text-align:center;font-size:14px;">${tgIcon}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--red-text);">Gagal memuat riwayat: ${e.message}</td></tr>`;
+  }
+}
+
+// ── Test Telegram
+async function testTelegramZone() {
+  const btn = document.getElementById('btn-test-telegram');
+  if (btn) { btn.disabled = true; btn.textContent = 'Mengirim...'; }
+  try {
+    const res = await fetch('/api/zones/test_telegram', { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      toast('✅ Pesan test berhasil dikirim ke Telegram!', 'success');
+    } else {
+      toast('❌ Gagal: ' + (json.message || 'Periksa TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID di .env'), 'error');
+    }
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="send" style="width:14px;height:14px;"></i> Test Telegram'; if(window.lucide) lucide.createIcons(); }
+  }
+}
+
+// ── Test Evaluate (manual trigger)
+async function testZoneEvaluate() {
+  try {
+    const res = await fetch('/api/zones/test_evaluate', { method: 'POST' });
+    const json = await res.json();
+    toast('Evaluasi manual selesai: ' + (json.cycle_label || ''), 'success');
+    fetchZoneHistory();
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
