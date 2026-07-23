@@ -442,6 +442,7 @@ class ZoneConfigRequest(BaseModel):
     name: str
     coords: list          # [[x_norm, y_norm], ...]
     threshold_minutes: Optional[int] = 15
+    cycle_hours: Optional[int] = 1
     telegram_enabled: Optional[bool] = True
 
 
@@ -465,6 +466,7 @@ def api_save_zone(req: ZoneConfigRequest):
         name=req.name,
         coords=req.coords,
         threshold_minutes=req.threshold_minutes or 15,
+        cycle_hours=req.cycle_hours or 1,
         telegram_enabled=req.telegram_enabled if req.telegram_enabled is not None else True,
     )
     zm.set_zone(zone)

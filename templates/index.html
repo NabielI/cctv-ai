@@ -2681,14 +2681,25 @@ code, pre, .mono, .font-mono,
     <!-- Zone Properties -->
     <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:16px;">
       <div style="font-size:12px; font-weight:700; color:var(--text); margin-bottom:12px;">Properti Zona</div>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
         <div>
           <label class="form-label">Nama Zona *</label>
           <input type="text" id="zone-name-input" class="form-input" placeholder="Contoh: Meja Kerja A" style="width:100%;">
         </div>
         <div>
-          <label class="form-label">Threshold Kehadiran (menit/jam)</label>
-          <input type="number" id="zone-threshold-input" class="form-input" value="15" min="1" max="59" style="width:100%;">
+          <label class="form-label">Siklus Evaluasi</label>
+          <select id="zone-cycle-hours-input" class="form-select" style="width:100%;">
+            <option value="1">1 Jam (Default)</option>
+            <option value="2">2 Jam</option>
+            <option value="4">4 Jam</option>
+            <option value="8">8 Jam (Shift Kerja)</option>
+            <option value="12">12 Jam (Setengah Hari)</option>
+            <option value="24">24 Jam (1 Hari Penuh)</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Threshold (menit)</label>
+          <input type="number" id="zone-threshold-input" class="form-input" value="15" min="1" max="1440" style="width:100%;">
         </div>
       </div>
       <div style="margin-top:12px;">
@@ -4213,6 +4224,7 @@ function openZoneDrawer(editZoneId = null) {
   // Clear inputs
   document.getElementById('zone-name-input').value = '';
   document.getElementById('zone-threshold-input').value = 15;
+  document.getElementById('zone-cycle-hours-input').value = 1;
   document.getElementById('zone-telegram-enabled').checked = true;
 
   // If editing, load existing zone data
@@ -4222,6 +4234,7 @@ function openZoneDrawer(editZoneId = null) {
       sel.value = zone.cam_id;
       document.getElementById('zone-name-input').value = zone.name;
       document.getElementById('zone-threshold-input').value = zone.threshold_minutes;
+      document.getElementById('zone-cycle-hours-input').value = zone.cycle_hours || 1;
       document.getElementById('zone-telegram-enabled').checked = zone.telegram_enabled;
       // Restore polygon points
       zonePoints = zone.coords.map(p => ({x: p[0], y: p[1]}));
@@ -4386,6 +4399,7 @@ function zoneRedrawCanvas() {
 async function saveZone() {
   const name = document.getElementById('zone-name-input').value.trim();
   const threshold = parseInt(document.getElementById('zone-threshold-input').value) || 15;
+  const cycleHours = parseInt(document.getElementById('zone-cycle-hours-input').value) || 1;
   const telegramEnabled = document.getElementById('zone-telegram-enabled').checked;
   const camId = parseInt(document.getElementById('zone-cam-select').value);
 
@@ -4406,6 +4420,7 @@ async function saveZone() {
         name,
         coords,
         threshold_minutes: threshold,
+        cycle_hours: cycleHours,
         telegram_enabled: telegramEnabled
       })
     });
@@ -4470,7 +4485,7 @@ async function loadZoneListDrawer() {
           <div style="width:10px;height:10px;border-radius:50%;background:${zoneColor(i)};flex-shrink:0;"></div>
           <div>
             <div style="font-size:13px;font-weight:600;color:var(--text);">${z.name}</div>
-            <div style="font-size:10px;color:var(--text-3);">Min. ${z.threshold_minutes} menit/jam • ${z.telegram_enabled ? '🔔 Telegram aktif' : '🔕 Telegram off'}</div>
+            <div style="font-size:10px;color:var(--text-3);">Min. ${z.threshold_minutes} mnt / ${z.cycle_hours || 1} jam • ${z.telegram_enabled ? '🔔 Telegram aktif' : '🔕 Telegram off'}</div>
           </div>
         </div>
         <div style="display:flex;gap:6px;">
@@ -4522,6 +4537,7 @@ async function fetchZoneStatus() {
       const cycle = z.current_cycle || {};
       const accum = parseFloat(cycle.accumulated_minutes || 0);
       const threshold = z.threshold_minutes || 15;
+      const cycleHrs = z.cycle_hours || 1;
       const pct = Math.min(100, Math.round((accum / threshold) * 100));
       const isPresent = cycle.is_person_present;
       const isOk = accum >= threshold;
@@ -4537,7 +4553,7 @@ async function fetchZoneStatus() {
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
               <div>
                 <div style="font-size:14px;font-weight:700;color:var(--text);">${z.name}</div>
-                <div style="font-size:11px;color:var(--text-3);margin-top:2px;">📷 cam_${z.cam_id} • Threshold: ${threshold} mnt/jam</div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:2px;">📷 cam_${z.cam_id} • Threshold: ${threshold} mnt / ${cycleHrs} jam</div>
               </div>
               <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
                 ${isPresent ? '<span style="font-size:10px;background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:20px;font-weight:600;">● Hadir</span>' : '<span style="font-size:10px;background:#f1f5f9;color:#64748b;padding:2px 7px;border-radius:20px;">○ Tidak ada</span>'}

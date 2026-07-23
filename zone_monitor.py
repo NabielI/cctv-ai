@@ -45,6 +45,7 @@ class ZoneConfig:
     def __init__(self, zone_id: str, cam_id: int, name: str,
                  coords: List[List[float]],
                  threshold_minutes: int = 15,
+                 cycle_hours: int = 1,
                  telegram_enabled: bool = True):
         self.zone_id = zone_id
         self.cam_id = cam_id
@@ -52,6 +53,7 @@ class ZoneConfig:
         # coords: list of [x_norm, y_norm] dalam 0.0–1.0 (normalized ke frame)
         self.coords = coords
         self.threshold_minutes = threshold_minutes
+        self.cycle_hours = max(1, int(cycle_hours))
         self.telegram_enabled = telegram_enabled
 
     def to_dict(self) -> dict:
@@ -61,6 +63,7 @@ class ZoneConfig:
             "name": self.name,
             "coords": self.coords,
             "threshold_minutes": self.threshold_minutes,
+            "cycle_hours": self.cycle_hours,
             "telegram_enabled": self.telegram_enabled,
         }
 
@@ -72,6 +75,7 @@ class ZoneConfig:
             name=d["name"],
             coords=d["coords"],
             threshold_minutes=d.get("threshold_minutes", 15),
+            cycle_hours=d.get("cycle_hours", 1),
             telegram_enabled=d.get("telegram_enabled", True),
         )
 
@@ -149,6 +153,7 @@ class ZoneDatabase:
                 name TEXT NOT NULL,
                 coords_json TEXT NOT NULL,
                 threshold_minutes INTEGER DEFAULT 15,
+                cycle_hours INTEGER DEFAULT 1,
                 telegram_enabled INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -167,6 +172,12 @@ class ZoneDatabase:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        try:
+            cur.execute("ALTER TABLE zones ADD COLUMN cycle_hours INTEGER DEFAULT 1")
+            conn.commit()
+        except Exception:
+            pass
+
         conn.commit()
         conn.close()
         print("[ZONE-DB] Database initialized OK.", flush=True)
@@ -176,14 +187,15 @@ class ZoneDatabase:
         cur = conn.cursor()
         cur.execute("""
             INSERT OR REPLACE INTO zones
-                (zone_id, cam_id, name, coords_json, threshold_minutes, telegram_enabled, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                (zone_id, cam_id, name, coords_json, threshold_minutes, cycle_hours, telegram_enabled, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """, (
             zone.zone_id,
             zone.cam_id,
             zone.name,
             json.dumps(zone.coords),
             zone.threshold_minutes,
+            zone.cycle_hours,
             1 if zone.telegram_enabled else 0,
         ))
         conn.commit()
@@ -205,12 +217,15 @@ class ZoneDatabase:
         for row in rows:
             try:
                 coords = json.loads(row["coords_json"])
+                keys = row.keys()
+                c_hours = row["cycle_hours"] if "cycle_hours" in keys and row["cycle_hours"] else 1
                 result.append(ZoneConfig(
                     zone_id=row["zone_id"],
                     cam_id=row["cam_id"],
                     name=row["name"],
                     coords=coords,
                     threshold_minutes=row["threshold_minutes"],
+                    cycle_hours=c_hours,
                     telegram_enabled=bool(row["telegram_enabled"]),
                 ))
             except Exception as e:
@@ -227,12 +242,15 @@ class ZoneDatabase:
         for row in rows:
             try:
                 coords = json.loads(row["coords_json"])
+                keys = row.keys()
+                c_hours = row["cycle_hours"] if "cycle_hours" in keys and row["cycle_hours"] else 1
                 result.append(ZoneConfig(
                     zone_id=row["zone_id"],
                     cam_id=row["cam_id"],
                     name=row["name"],
                     coords=coords,
                     threshold_minutes=row["threshold_minutes"],
+                    cycle_hours=c_hours,
                     telegram_enabled=bool(row["telegram_enabled"]),
                 ))
             except Exception:
