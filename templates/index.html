@@ -4312,18 +4312,29 @@ function openZoneDrawer(editZoneId = null) {
   const errBox = document.getElementById('zone-drawer-error');
   if (errBox) { errBox.style.display = 'none'; errBox.innerHTML = ''; }
 
-  // Populate camera selector
+  // Populate camera selector dynamically
   const sel = document.getElementById('zone-cam-select');
   if (sel) {
-    if (cameras && cameras.length > 0) {
-      sel.innerHTML = cameras.map(c =>
-        `<option value="${c.id}">${c.name} (cam_${c.id})</option>`
-      ).join('');
-    } else {
-      const fallbackId = activeCamId !== null ? activeCamId : 0;
-      sel.innerHTML = `<option value="${fallbackId}">Kamera (cam_${fallbackId})</option>`;
+    let camList = cameras ? [...cameras] : [];
+    if (activeCamId !== null && activeCamId !== undefined && !camList.some(c => c.id === activeCamId)) {
+      camList.push({ id: activeCamId, name: `Kamera ${activeCamId}` });
     }
-    if (activeCamId !== null) sel.value = activeCamId;
+    if (window.zoneAllZones) {
+      window.zoneAllZones.forEach(z => {
+        if (z.cam_id !== undefined && z.cam_id !== null && !camList.some(c => c.id === z.cam_id)) {
+          camList.push({ id: z.cam_id, name: `Kamera ${z.cam_id}` });
+        }
+      });
+    }
+    if (camList.length === 0) {
+      camList = [{ id: 0, name: 'Kamera Utama' }];
+    }
+    sel.innerHTML = camList.map(c =>
+      `<option value="${c.id}">${c.name || 'Kamera'} (cam_${c.id})</option>`
+    ).join('');
+
+    const targetId = activeCamId !== null && activeCamId !== undefined ? activeCamId : camList[0].id;
+    sel.value = targetId;
   }
 
   // Clear inputs
@@ -4596,8 +4607,10 @@ async function deleteZone(zoneId, zoneName) {
 
 // ── Load zone list inside drawer (for current camera)
 async function loadZoneListDrawer() {
-  const camId = parseInt(document.getElementById('zone-cam-select')?.value);
-  if (isNaN(camId)) return;
+  const sel = document.getElementById('zone-cam-select');
+  let camId = sel ? parseInt(sel.value) : NaN;
+  if (isNaN(camId) && activeCamId !== null && activeCamId !== undefined) camId = activeCamId;
+  if (isNaN(camId)) camId = 0;
   const listEl = document.getElementById('zone-list-drawer');
   if (!listEl) return;
 
