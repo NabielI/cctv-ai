@@ -766,29 +766,56 @@ app.get('/api/snapshot/:id', (req, res) => {
         res.status(status).send(msg);
     }
 
+    function grabFromPythonService() {
+        if (responded) return;
+        console.log(`Snapshot camera_${camId}: attempting fallback via Python AI Service...`);
+        const pyReq = http.get(`http://127.0.0.1:5001/api/snapshot/${camId}`, (pyRes) => {
+            if (pyRes.statusCode !== 200) {
+                pyRes.resume();
+                return sendError(502, 'Failed to capture frame — camera stream offline');
+            }
+            const chunks = [];
+            pyRes.on('data', chunk => chunks.push(chunk));
+            pyRes.on('end', () => {
+                if (responded) return;
+                const buffer = Buffer.concat(chunks);
+                if (buffer.length < 3) return sendError(500, 'Empty frame');
+                responded = true;
+                const camName = cam.name.replace(/\s+/g, '_').replace(/[^\w-]/g, '');
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
+                const filename = `Snapshot_${camName}_${timestamp}.jpg`;
+                res.setHeader('Content-Type', 'image/jpeg');
+                res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+                res.setHeader('Content-Length', buffer.length);
+                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                res.end(buffer);
+                console.log(`Snapshot camera_${camId}: OK via Python AI Service, sent ${buffer.length} bytes`);
+            });
+        });
+        pyReq.on('error', (err) => {
+            console.error(`Snapshot camera_${camId}: Python AI Service fallback error: ${err.message}`);
+            sendError(502, 'Failed to capture frame — stream offline');
+        });
+        pyReq.setTimeout(4000, () => {
+            pyReq.destroy();
+            sendError(504, 'Snapshot timeout — stream not responding');
+        });
+    }
+
     function grabFrame(isRetry) {
         const frameOptions = {
             hostname: '127.0.0.1',
             port: 1984,
             path: `/api/frame.jpeg?src=${streamKey}&width=0&height=0`,
             method: 'GET',
-            timeout: isRetry ? 10000 : 6000
+            timeout: isRetry ? 5000 : 3000
         };
 
         const frameReq = http.request(frameOptions, (frameRes) => {
             if (frameRes.statusCode !== 200) {
-                // Drain the response body to free socket
                 frameRes.resume();
-                if (!isRetry) {
-                    // Stream not ready — trigger warmup and retry once after 2 seconds
-                    console.log(`Snapshot camera_${camId}: stream not ready (HTTP ${frameRes.statusCode}), triggering warmup and retrying...`);
-                    warmupStreams();
-                    setTimeout(() => grabFrame(true), 2000);
-                } else {
-                    console.error(`Snapshot camera_${camId}: go2rtc returned HTTP ${frameRes.statusCode} on retry`);
-                    sendError(502, 'Failed to capture frame — camera stream is offline');
-                }
-                return;
+                console.log(`Snapshot camera_${camId}: go2rtc HTTP ${frameRes.statusCode}, trying Python AI Service fallback...`);
+                return grabFromPythonService();
             }
 
             const chunks = [];
@@ -798,8 +825,8 @@ app.get('/api/snapshot/:id', (req, res) => {
                 const buffer = Buffer.concat(chunks);
 
                 if (buffer.length < 3) {
-                    console.error(`Snapshot camera_${camId}: empty frame response`);
-                    return sendError(500, 'Empty frame from camera');
+                    console.error(`Snapshot camera_${camId}: empty frame response from go2rtc, trying Python fallback...`);
+                    return grabFromPythonService();
                 }
 
                 responded = true;
@@ -808,30 +835,30 @@ app.get('/api/snapshot/:id', (req, res) => {
                 const filename = `Snapshot_${camName}_${timestamp}.jpg`;
 
                 res.setHeader('Content-Type', 'image/jpeg');
-                res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+                res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
                 res.setHeader('Content-Length', buffer.length);
                 res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
                 res.end(buffer);
-                console.log(`Snapshot camera_${camId}: OK, sent ${buffer.length} bytes (${(buffer.length / 1024).toFixed(1)} KB) as ${filename}`);
+                console.log(`Snapshot camera_${camId}: OK via go2rtc, sent ${buffer.length} bytes`);
             });
         });
 
         frameReq.on('timeout', () => {
             frameReq.destroy();
-            console.error(`Snapshot camera_${camId}: go2rtc frame request timed out`);
-            sendError(504, 'Snapshot timeout — camera stream not responding');
+            console.error(`Snapshot camera_${camId}: go2rtc frame request timed out, trying Python fallback...`);
+            grabFromPythonService();
         });
 
         frameReq.on('error', (err) => {
             if (responded) return;
-            console.error(`Snapshot camera_${camId}: go2rtc error: ${err.message}`);
-            sendError(503, 'go2rtc not available — restart the server');
+            console.error(`Snapshot camera_${camId}: go2rtc error (${err.message}), trying Python fallback...`);
+            grabFromPythonService();
         });
 
         frameReq.end();
     }
 
-    console.log(`Snapshot camera_${camId}: grabbing frame from go2rtc (stream: ${streamKey})`);
+    console.log(`Snapshot camera_${camId}: grabbing frame (stream: ${streamKey})`);
     grabFrame(false);
 });
 

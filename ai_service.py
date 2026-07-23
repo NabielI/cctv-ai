@@ -416,6 +416,21 @@ def compat_stream(cam_id: int = Query(0)):
     )
 
 
+@app.get("/api/snapshot/{camera_id}")
+def api_camera_snapshot(camera_id: int):
+    """Grab latest JPEG frame from CameraManager OpenCV stream."""
+    cam = camera_manager.get_camera(camera_id)
+    if not cam:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    frame = cam.get_frame()
+    if frame is None:
+        raise HTTPException(status_code=503, detail="Frame not available yet")
+    success, encoded_img = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to encode frame")
+    return Response(content=encoded_img.tobytes(), media_type="image/jpeg")
+
+
 # ══════════════════════════════════════════════════
 #  Zone Monitoring REST API
 # ══════════════════════════════════════════════════
