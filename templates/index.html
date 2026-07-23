@@ -2645,6 +2645,9 @@ code, pre, .mono, .font-mono,
   </div>
   <div class="drawer-body" style="padding:20px; overflow-y:auto;">
 
+    <!-- Inline Error Alert Box -->
+    <div id="zone-drawer-error" style="display:none; background:#fee2e2; border:1px solid #f87171; color:#991b1b; padding:10px 14px; border-radius:8px; font-size:12px; font-weight:600; margin-bottom:14px;"></div>
+
     <!-- Kamera Selector -->
     <div style="margin-bottom:16px;">
       <label class="form-label">Kamera Target</label>
@@ -4289,39 +4292,59 @@ const ZONE_COLORS = [
 
 function zoneColor(idx) { return ZONE_COLORS[idx % ZONE_COLORS.length]; }
 
+function showZoneDrawerError(msg) {
+  const errBox = document.getElementById('zone-drawer-error');
+  if (errBox) {
+    errBox.innerHTML = msg;
+    errBox.style.display = 'block';
+    const drawerBody = document.querySelector('#zone-drawer .drawer-body');
+    if (drawerBody) drawerBody.scrollTop = 0;
+  }
+  toast(msg, 'error');
+}
+
 // ── Open Zone Drawer
 function openZoneDrawer(editZoneId = null) {
   zoneEditingId = editZoneId;
   zonePoints = [];
   zonePolygonClosed = false;
 
+  const errBox = document.getElementById('zone-drawer-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.innerHTML = ''; }
+
   // Populate camera selector
   const sel = document.getElementById('zone-cam-select');
-  sel.innerHTML = cameras.map(c =>
-    `<option value="${c.id}">${c.name} (cam_${c.id})</option>`
-  ).join('');
-  // Set to active camera if available
-  if (activeCamId !== null) sel.value = activeCamId;
+  if (sel) {
+    if (cameras && cameras.length > 0) {
+      sel.innerHTML = cameras.map(c =>
+        `<option value="${c.id}">${c.name} (cam_${c.id})</option>`
+      ).join('');
+    } else {
+      const fallbackId = activeCamId !== null ? activeCamId : 0;
+      sel.innerHTML = `<option value="${fallbackId}">Kamera (cam_${fallbackId})</option>`;
+    }
+    if (activeCamId !== null) sel.value = activeCamId;
+  }
 
   // Clear inputs
-  document.getElementById('zone-name-input').value = '';
-  document.getElementById('zone-threshold-input').value = 15;
-  document.getElementById('zone-cycle-hours-input').value = 1;
-  document.getElementById('zone-telegram-enabled').checked = true;
-  document.getElementById('zone-start-hour-input').value = '08:00';
-  document.getElementById('zone-grace-period-input').value = 60;
+  if (document.getElementById('zone-name-input')) document.getElementById('zone-name-input').value = '';
+  if (document.getElementById('zone-threshold-input')) document.getElementById('zone-threshold-input').value = 15;
+  if (document.getElementById('zone-cycle-hours-input')) document.getElementById('zone-cycle-hours-input').value = 1;
+  if (document.getElementById('zone-telegram-enabled')) document.getElementById('zone-telegram-enabled').checked = true;
+  if (document.getElementById('zone-start-hour-input')) document.getElementById('zone-start-hour-input').value = '08:00';
+  if (document.getElementById('zone-grace-period-input')) document.getElementById('zone-grace-period-input').value = 60;
 
   // If editing, load existing zone data
   if (editZoneId) {
     const zone = zoneAllZones.find(z => z.zone_id === editZoneId);
     if (zone) {
-      sel.value = zone.cam_id;
-      document.getElementById('zone-name-input').value = zone.name;
-      document.getElementById('zone-threshold-input').value = zone.threshold_minutes;
-      document.getElementById('zone-cycle-hours-input').value = zone.cycle_hours || 1;
-      document.getElementById('zone-telegram-enabled').checked = zone.telegram_enabled;
-      document.getElementById('zone-start-hour-input').value = zone.start_hour || '08:00';
-      document.getElementById('zone-grace-period-input').value = zone.grace_period_seconds !== undefined ? zone.grace_period_seconds : 60;
+      if (sel) sel.value = zone.cam_id;
+      if (document.getElementById('zone-name-input')) document.getElementById('zone-name-input').value = zone.name;
+      if (document.getElementById('zone-threshold-input')) document.getElementById('zone-threshold-input').value = zone.threshold_minutes;
+      if (document.getElementById('zone-cycle-hours-input')) document.getElementById('zone-cycle-hours-input').value = zone.cycle_hours || 1;
+      if (document.getElementById('zone-telegram-enabled')) document.getElementById('zone-telegram-enabled').checked = zone.telegram_enabled;
+      if (document.getElementById('zone-start-hour-input')) document.getElementById('zone-start-hour-input').value = zone.start_hour || '08:00';
+      if (document.getElementById('zone-grace-period-input')) document.getElementById('zone-grace-period-input').value = zone.grace_period_seconds !== undefined ? zone.grace_period_seconds : 60;
       // Restore polygon points
       zonePoints = zone.coords.map(p => ({x: p[0], y: p[1]}));
       zonePolygonClosed = zonePoints.length >= 3;
@@ -4499,9 +4522,18 @@ async function saveZone() {
   const startHour = startHourInput ? (startHourInput.value || '08:00') : '08:00';
   const gracePeriod = graceInput ? (parseInt(graceInput.value) || 60) : 60;
 
-  if (!name) { toast('Nama zona wajib diisi.', 'error'); return; }
-  if (isNaN(camId)) { toast('Kamera belum dipilih.', 'error'); return; }
-  if (zonePoints.length < 3) { toast('Gambar minimal 3 titik di atas area kamera.', 'error'); return; }
+  if (!name) {
+    showZoneDrawerError('⚠️ Nama zona wajib diisi. Silakan isi Nama Zona!');
+    return;
+  }
+  if (isNaN(camId)) {
+    showZoneDrawerError('⚠️ Kamera belum dipilih. Silakan pilih kamera target.');
+    return;
+  }
+  if (zonePoints.length < 3) {
+    showZoneDrawerError('⚠️ Area poligon zona belum digambar! Silakan scroll ke atas dan klik minimal 3 titik pada gambar preview kamera di bagian atas drawer untuk melingkupi area yang ingin dipantau.');
+    return;
+  }
   zonePolygonClosed = true;
 
   const zoneId = zoneEditingId || `cam${camId}_zone_${Date.now()}`;
@@ -4535,11 +4567,12 @@ async function saveZone() {
       if (nameInput) nameInput.value = '';
       loadZoneListDrawer();
       fetchZoneStatus();
+      closeZoneDrawer();
     } else {
-      toast(json.detail || json.message || 'Gagal menyimpan zona.', 'error');
+      showZoneDrawerError(json.detail || json.message || 'Gagal menyimpan zona.');
     }
   } catch(e) {
-    toast('Error menyimpan zona: ' + e.message, 'error');
+    showZoneDrawerError('Error menyimpan zona: ' + e.message);
   }
 }
 

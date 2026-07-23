@@ -896,7 +896,8 @@ class ZoneMonitor:
             # Hanya evaluasi jika jam selesai >= start_hour zona
             if finished_hour is not None:
                 try:
-                    start_h = int(zone.start_hour.split(":")[0])
+                    clean_h = str(zone.start_hour).replace(".", ":").split(":")[0]
+                    start_h = int(clean_h)
                     if finished_hour < start_h:
                         # Jam belum dalam jam operasional zona ini, skip
                         continue
