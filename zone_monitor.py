@@ -145,14 +145,13 @@ class ZoneContinuousTracker:
                 self._last_seen_time = timestamp
 
                 if not self._is_present_debounced:
-                    # Orang baru masuk (atau kembali setelah jeda)
+                    # Orang baru masuk (atau kembali setelah jeda dalam grace period)
                     self._is_present_debounced = True
 
                     if self._session_start is None:
-                        # Cek apakah ini masih dalam grace period
-                        # (sudah ada accumulated time dan jeda tidak terlalu lama)
-                        # Session baru dimulai sekarang
+                        # Mulai sesi baru
                         self._session_start = timestamp
+                        # PENTING: elapsed = 0 pada frame pertama, yang benar
 
                 # Perbarui akumulasi jika sesi aktif
                 if self._session_start is not None:
@@ -170,26 +169,39 @@ class ZoneContinuousTracker:
                     # Cek debounce: sudah berapa lama tidak terdeteksi?
                     if self._first_absent_time is None:
                         self._first_absent_time = now
+                    # PENTING: selama masih dalam debounce window, tetap akumulasikan!
+                    # Orang dianggap masih hadir selama debounce window belum habis
+                    if self._session_start is not None:
+                        elapsed = now - self._session_start
+                        elapsed = min(elapsed, 3.0)
+                        if elapsed > 0:
+                            self._continuous_seconds += elapsed
+                        self._session_start = now  # Update rolling
 
                     absent_duration = now - self._first_absent_time
-
                     if absent_duration >= PRESENCE_DEBOUNCE_SECS:
-                        # Debounce terpenuhi: orang memang sudah keluar
+                        # Debounce terpenuhi: orang memang sudah keluar zona
                         self._is_present_debounced = False
-                        self._session_start = None  # Hentikan akumulasi
 
                         # Cek grace period: sudah berapa lama sejak terakhir terlihat?
                         if self._last_seen_time is not None:
                             gap = now - self._last_seen_time
                             if gap >= self.grace_period_seconds:
-                                # Melewati grace period → reset timer
+                                # Melewati grace period → reset timer ke 0 (sesi baru)
                                 print(
                                     f"[ZONE-TRACKER] Grace period exceeded ({gap:.0f}s >= "
                                     f"{self.grace_period_seconds}s), resetting continuous timer.",
                                     flush=True
                                 )
                                 self._continuous_seconds = 0.0
-                    # else: masih dalam debounce window, belum ubah status
+                                self._session_start = None
+                            else:
+                                # Masih dalam grace period: jeda sementara, jangan reset
+                                # _session_start = None agar tidak terus akumulasi saat absen
+                                self._session_start = None
+                        else:
+                            self._session_start = None
+                    # else: masih dalam debounce window, status belum berubah
 
     @property
     def accumulated_minutes(self) -> float:
@@ -502,7 +514,7 @@ def draw_zones_on_frame(frame: np.ndarray,
         # Label zona + status
         if len(pts) > 0:
             lx, ly = pts[0]
-            status_str = "● HADIR" if is_present else "○ TIDAK HADIR"
+            status_str = "[HADIR]" if is_present else "[TIDAK HADIR]"
             label = f"{zone.name} | {accum_min:.1f}/{threshold}m | {status_str}"
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
             cv2.rectangle(frame, (lx, ly - th - 8), (lx + tw + 8, ly + 2), (10, 10, 30), -1)
@@ -644,6 +656,7 @@ class ZoneMonitor:
         """
         print(f"[ZONE-DETECTOR] Loop started for cam_{cam_id}.", flush=True)
         INTERVAL = 0.2  # 5 FPS untuk zone checking (lebih hemat resource)
+        _debug_frame_count = 0  # Counter untuk throttle log debug
 
         while self._running:
             try:
@@ -669,6 +682,21 @@ class ZoneMonitor:
                 # Jalankan YOLO nano untuk deteksi person
                 person_bboxes = self._detect_persons(frame)
 
+                _debug_frame_count += 1
+                # Log debug setiap 30 frame (~6 detik) untuk diagnosis koordinat
+                do_debug = (_debug_frame_count % 30 == 1)
+
+                if do_debug:
+                    print(f"[ZONE-DEBUG] cam_{cam_id} | frame={w}x{h} | "
+                          f"bboxes={len(person_bboxes)} | zones={len(cam_zones)}", flush=True)
+                    for bb in person_bboxes:
+                        print(f"  [ZONE-DEBUG] bbox_px={bb}", flush=True)
+                    for z in cam_zones:
+                        first3 = z.coords[:3]
+                        px_pts = [(int(p[0]*w), int(p[1]*h)) for p in first3]
+                        print(f"  [ZONE-DEBUG] zone='{z.name}' coords_norm(first3)={first3} "
+                              f"-> px(first3)={px_pts}", flush=True)
+
                 # Update tracker setiap zona (dengan debounce built-in di ZoneContinuousTracker)
                 now = time.time()
                 with self._lock:
@@ -682,6 +710,11 @@ class ZoneMonitor:
                             is_person_in_zone(bbox, zone.coords, w, h)
                             for bbox in person_bboxes
                         )
+
+                        if do_debug:
+                            print(f"  [ZONE-DEBUG] zone='{zone.name}' is_present={is_present} "
+                                  f"accum={tracker.accumulated_minutes:.2f}min", flush=True)
+
                         tracker.update(is_present, now)
 
                 # Simpan annotated frame untuk snapshot Telegram
@@ -698,6 +731,8 @@ class ZoneMonitor:
 
             except Exception as e:
                 print(f"[ZONE-DETECTOR] Error cam_{cam_id}: {e}", flush=True)
+                import traceback
+                print(traceback.format_exc(), flush=True)
 
             time.sleep(INTERVAL)
 
