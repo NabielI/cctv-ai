@@ -669,7 +669,7 @@ class ZoneMonitor:
         Berjalan ~5 FPS (interval 200ms) untuk efisiensi resource.
         """
         print(f"[ZONE-DETECTOR] Loop started for cam_{cam_id}.", flush=True)
-        INTERVAL = 0.2  # 5 FPS untuk zone checking (lebih hemat resource)
+        INTERVAL = 0.35  # ~3 FPS untuk zone checking (sangat hemat CPU)
         _debug_frame_count = 0  # Counter untuk throttle log debug
 
         while self._running:
@@ -767,10 +767,10 @@ class ZoneMonitor:
             with self._yolo_lock:
                 with torch.no_grad():
                     try:
-                        results = model(frame, imgsz=416, verbose=False,
+                        results = model(frame, imgsz=320, verbose=False,
                                        conf=0.20, classes=[COCO_PERSON])
                     except Exception:
-                        results = model(frame, imgsz=640, verbose=False,
+                        results = model(frame, imgsz=320, verbose=False,
                                        conf=0.20, classes=[COCO_PERSON])
 
             bboxes = []

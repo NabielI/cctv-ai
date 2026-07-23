@@ -4483,15 +4483,24 @@ function zoneRedrawCanvas() {
 
 // ── Save Zone
 async function saveZone() {
-  const name = document.getElementById('zone-name-input').value.trim();
-  const threshold = parseInt(document.getElementById('zone-threshold-input').value) || 15;
-  const cycleHours = parseInt(document.getElementById('zone-cycle-hours-input').value) || 1;
-  const telegramEnabled = document.getElementById('zone-telegram-enabled').checked;
-  const camId = parseInt(document.getElementById('zone-cam-select').value);
-  const startHour = document.getElementById('zone-start-hour-input').value || '08:00';
-  const gracePeriod = parseInt(document.getElementById('zone-grace-period-input').value) || 60;
+  const nameInput = document.getElementById('zone-name-input');
+  const thresholdInput = document.getElementById('zone-threshold-input');
+  const cycleInput = document.getElementById('zone-cycle-hours-input');
+  const telegramCheck = document.getElementById('zone-telegram-enabled');
+  const camSelect = document.getElementById('zone-cam-select');
+  const startHourInput = document.getElementById('zone-start-hour-input');
+  const graceInput = document.getElementById('zone-grace-period-input');
+
+  const name = nameInput ? nameInput.value.trim() : '';
+  const threshold = thresholdInput ? (parseInt(thresholdInput.value) || 15) : 15;
+  const cycleHours = cycleInput ? (parseInt(cycleInput.value) || 1) : 1;
+  const telegramEnabled = telegramCheck ? telegramCheck.checked : true;
+  const camId = camSelect ? parseInt(camSelect.value) : activeCamId;
+  const startHour = startHourInput ? (startHourInput.value || '08:00') : '08:00';
+  const gracePeriod = graceInput ? (parseInt(graceInput.value) || 60) : 60;
 
   if (!name) { toast('Nama zona wajib diisi.', 'error'); return; }
+  if (isNaN(camId)) { toast('Kamera belum dipilih.', 'error'); return; }
   if (zonePoints.length < 3) { toast('Gambar minimal 3 titik di atas area kamera.', 'error'); return; }
   zonePolygonClosed = true;
 
@@ -4521,15 +4530,16 @@ async function saveZone() {
       zonePolygonClosed = false;
       zoneEditingId = null;
       zoneRedrawCanvas();
-      document.getElementById('zone-canvas-hint').style.display = 'block';
-      document.getElementById('zone-name-input').value = '';
+      const hint = document.getElementById('zone-canvas-hint');
+      if (hint) hint.style.display = 'block';
+      if (nameInput) nameInput.value = '';
       loadZoneListDrawer();
       fetchZoneStatus();
     } else {
-      toast(json.message || 'Gagal menyimpan zona.', 'error');
+      toast(json.detail || json.message || 'Gagal menyimpan zona.', 'error');
     }
   } catch(e) {
-    toast('Error: ' + e.message, 'error');
+    toast('Error menyimpan zona: ' + e.message, 'error');
   }
 }
 
