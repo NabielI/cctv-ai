@@ -487,7 +487,9 @@ app.use('/api/faces', (req, res) => {
 
 // Proxy /api/zones/* endpoints to Python FastAPI service (Zone Monitoring)
 app.use('/api/zones', (req, res) => {
-    const targetUrl = `http://127.0.0.1:5001/api/zones${req.url}`;
+    let subPath = req.url || '';
+    if (subPath === '/') subPath = '';
+    const targetUrl = `http://127.0.0.1:5001/api/zones${subPath}`;
     const payload = (req.method !== 'GET' && req.method !== 'HEAD' && req.body) ? JSON.stringify(req.body) : '';
     const headers = {
         'host': '127.0.0.1:5001'

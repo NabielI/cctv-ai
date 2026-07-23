@@ -445,6 +445,7 @@ class ZoneConfigRequest(BaseModel):
 
 
 @app.get("/api/zones")
+@app.get("/api/zones/")
 def api_get_zones(cam_id: Optional[int] = Query(None)):
     """Dapatkan semua zona, opsional filter per kamera."""
     zm = get_zone_monitor()
@@ -453,6 +454,7 @@ def api_get_zones(cam_id: Optional[int] = Query(None)):
 
 
 @app.post("/api/zones")
+@app.post("/api/zones/")
 def api_save_zone(req: ZoneConfigRequest):
     """Tambah atau update satu zona."""
     zm = get_zone_monitor()
@@ -479,6 +481,7 @@ def api_delete_zone(zone_id: str):
 
 
 @app.get("/api/zones/status")
+@app.get("/api/zones/status/")
 def api_zone_status(cam_id: Optional[int] = Query(None)):
     """Status real-time semua zona (akumulasi menit saat ini dalam siklus jam)."""
     zm = get_zone_monitor()
@@ -487,6 +490,7 @@ def api_zone_status(cam_id: Optional[int] = Query(None)):
 
 
 @app.get("/api/zones/history")
+@app.get("/api/zones/history/")
 def api_zone_history(
     cam_id: Optional[int] = Query(None),
     zone_id: Optional[str] = Query(None),
