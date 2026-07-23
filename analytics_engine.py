@@ -1425,6 +1425,25 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
             processed, meta = process_drowsiness(cam_id, frame, state, meta)
         elif mode == 'pose':
             processed, meta = process_pose(frame, infer_fr, scale, meta)
+        elif mode == 'zone_monitor':
+            try:
+                from zone_monitor import get_zone_monitor
+                zm = get_zone_monitor()
+                # Feed frame to zone monitor background detector
+                zm.feed_frame(cam_id, frame)
+                # Get annotated frame (drawn by background detector thread)
+                annotated = zm.get_frame_with_zones(cam_id)
+                processed = annotated if annotated is not None else frame.copy()
+                draw_text_with_bg(processed, f"ZONE MONITOR | {act_model_name}", (12, 28), (10, 20, 40), (0, 255, 120))
+                # Build metadata for frontend canvas overlay
+                cam_zones = zm.get_zones(cam_id=cam_id)
+                meta["mode"] = "zone_monitor"
+                meta["zones_count"] = len(cam_zones)
+                meta["zones"] = [z.to_dict() for z in cam_zones]
+                meta["zone_status"] = zm.get_zone_status(cam_id=cam_id)
+            except Exception as e:
+                print(f"[ANALYTICS] Zone monitor mode error: {e}", flush=True)
+                processed = frame
         else:
             processed, meta = frame, meta
     except Exception as dispatch_err:

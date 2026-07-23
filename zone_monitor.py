@@ -2,11 +2,17 @@
 zone_monitor.py — Multi-Area Zone Presence Monitoring Engine
 
 Fitur:
-- Menjalankan deteksi person (YOLO nano) secara INDEPENDEN dari mode AI utama
+- Deteksi person (YOLO nano) secara INDEPENDEN dari mode AI utama
 - Mendukung BANYAK ZONA per kamera, masing-masing independen
-- Akumulasi waktu kehadiran per siklus JAM BULAT (bukan dari sistem start)
-- Evaluasi otomatis di setiap jam bulat → kirim notifikasi Telegram jika threshold tidak terpenuhi
+- Metode Continuous Presence Timer + Grace Period:
+    * Timer berjalan selama orang ada di zona
+    * Jika orang keluar < grace_period_seconds, timer TIDAK reset (ambil minum sebentar OK)
+    * Jika orang keluar >= grace_period_seconds, timer di-reset ke 0 (sesi baru)
+- DEBOUNCE: status "tidak hadir" baru ditetapkan setelah 3 detik tidak terdeteksi
+  (mengatasi noise YOLO sesaat akibat pose/pencahayaan)
+- Evaluasi otomatis di setiap jam bulat berdasarkan Jam Mulai Operasional (start_hour)
 - Threshold BERBEDA PER ZONA (default 15 menit)
+- Snapshot frame kamera dikirim bersama notifikasi Telegram
 - Thread-safe, daemon thread, cleanup otomatis saat shutdown
 """
 
@@ -34,6 +40,9 @@ COCO_PERSON = 0
 # ── Minimum IoU/containment ratio for "person inside zone"
 ZONE_OVERLAP_THRESHOLD = 0.25
 
+# ── Debounce: jumlah detik berturut-turut tanpa deteksi sebelum status ke "tidak hadir"
+PRESENCE_DEBOUNCE_SECS = 3.0
+
 
 # ═══════════════════════════════════════════════════════
 #  ZoneConfig — Konfigurasi 1 Zona
@@ -46,7 +55,9 @@ class ZoneConfig:
                  coords: List[List[float]],
                  threshold_minutes: int = 15,
                  cycle_hours: int = 1,
-                 telegram_enabled: bool = True):
+                 telegram_enabled: bool = True,
+                 start_hour: str = "08:00",
+                 grace_period_seconds: int = 60):
         self.zone_id = zone_id
         self.cam_id = cam_id
         self.name = name
@@ -55,6 +66,10 @@ class ZoneConfig:
         self.threshold_minutes = threshold_minutes
         self.cycle_hours = max(1, int(cycle_hours))
         self.telegram_enabled = telegram_enabled
+        # Jam operasional mulai, format "HH:MM" (default "08:00")
+        self.start_hour = start_hour
+        # Grace period: toleransi jeda keluar dari zona (detik) sebelum timer reset
+        self.grace_period_seconds = max(0, int(grace_period_seconds))
 
     def to_dict(self) -> dict:
         return {
@@ -65,6 +80,8 @@ class ZoneConfig:
             "threshold_minutes": self.threshold_minutes,
             "cycle_hours": self.cycle_hours,
             "telegram_enabled": self.telegram_enabled,
+            "start_hour": self.start_hour,
+            "grace_period_seconds": self.grace_period_seconds,
         }
 
     @staticmethod
@@ -77,55 +94,131 @@ class ZoneConfig:
             threshold_minutes=d.get("threshold_minutes", 15),
             cycle_hours=d.get("cycle_hours", 1),
             telegram_enabled=d.get("telegram_enabled", True),
+            start_hour=d.get("start_hour", "08:00"),
+            grace_period_seconds=d.get("grace_period_seconds", 60),
         )
 
 
 # ═══════════════════════════════════════════════════════
-#  ZoneCycleTracker — State Akumulasi 1 Siklus Jam
+#  ZoneContinuousTracker — State Continuous Presence Timer
 # ═══════════════════════════════════════════════════════
 
-class ZoneCycleTracker:
+class ZoneContinuousTracker:
     """
-    Melacak akumulasi kehadiran orang dalam SATU siklus jam bulat untuk SATU zona.
-    Dibuat ulang setiap jam bulat.
+    Melacak kehadiran orang menggunakan metode Continuous Presence Timer.
+
+    Logika:
+    - Selama orang HADIR: timer bertambah sesuai waktu nyata.
+    - Jika orang KELUAR < grace_period_seconds: timer TIDAK reset, 
+      hanya dijeda. Saat orang kembali, timer lanjut dari nilai sebelumnya.
+    - Jika orang KELUAR >= grace_period_seconds: timer di-reset ke 0 (sesi baru).
+    - DEBOUNCE: status baru berubah ke "tidak hadir" hanya setelah
+      PRESENCE_DEBOUNCE_SECS detik berturut-turut tidak terdeteksi.
     """
 
-    def __init__(self, hour_label: str):
-        # e.g. "2026-07-23 09:00"
+    def __init__(self, hour_label: str, grace_period_seconds: int = 60):
         self.hour_label = hour_label
-        self.accumulated_seconds: float = 0.0
-        self.last_update_time: Optional[float] = None
-        self.is_person_present: bool = False
+        self.grace_period_seconds = grace_period_seconds
+
+        # Total waktu kehadiran kontinyu (detik)
+        self._continuous_seconds: float = 0.0
+        # Waktu saat sesi hadir terakhir dimulai (None jika tidak hadir)
+        self._session_start: Optional[float] = None
+        # Waktu terakhir orang terdeteksi (untuk grace period + debounce)
+        self._last_seen_time: Optional[float] = None
+        # Waktu pertama kali TIDAK terdeteksi (untuk debounce)
+        self._first_absent_time: Optional[float] = None
+        # Status hadir "efektif" setelah debounce
+        self._is_present_debounced: bool = False
+        # Lock
         self.lock = threading.Lock()
 
-    def update(self, is_present: bool, timestamp: float):
+    def update(self, raw_present: bool, timestamp: float):
         """
-        Dipanggil setiap kali ada frame baru.
-        Akumulasikan durasi kehadiran berdasarkan delta waktu.
+        Dipanggil setiap kali ada frame baru dari detector.
+        raw_present: apakah orang terdeteksi di frame ini (sebelum debounce).
         """
         with self.lock:
-            if self.last_update_time is not None:
-                dt = timestamp - self.last_update_time
-                # Cap delta max 3 detik untuk menghindari ghost time saat kamera lag/reconnect
-                dt = min(dt, 3.0)
-                if self.is_person_present and dt > 0:
-                    self.accumulated_seconds += dt
-            self.is_person_present = is_present
-            self.last_update_time = timestamp
+            if raw_present:
+                # Reset debounce counter — orang terlihat lagi
+                self._first_absent_time = None
+                self._last_seen_time = timestamp
+
+                if not self._is_present_debounced:
+                    # Orang baru masuk (atau kembali setelah jeda)
+                    self._is_present_debounced = True
+
+                    if self._session_start is None:
+                        # Cek apakah ini masih dalam grace period
+                        # (sudah ada accumulated time dan jeda tidak terlalu lama)
+                        # Session baru dimulai sekarang
+                        self._session_start = timestamp
+
+                # Perbarui akumulasi jika sesi aktif
+                if self._session_start is not None:
+                    elapsed = timestamp - self._session_start
+                    elapsed = min(elapsed, 3.0)  # Cap max 3 detik per frame (anti-lag spike)
+                    if elapsed > 0:
+                        self._continuous_seconds += elapsed
+                    self._session_start = timestamp  # Rolling update
+
+            else:
+                # Orang tidak terdeteksi di frame ini
+                now = timestamp
+
+                if self._is_present_debounced:
+                    # Cek debounce: sudah berapa lama tidak terdeteksi?
+                    if self._first_absent_time is None:
+                        self._first_absent_time = now
+
+                    absent_duration = now - self._first_absent_time
+
+                    if absent_duration >= PRESENCE_DEBOUNCE_SECS:
+                        # Debounce terpenuhi: orang memang sudah keluar
+                        self._is_present_debounced = False
+                        self._session_start = None  # Hentikan akumulasi
+
+                        # Cek grace period: sudah berapa lama sejak terakhir terlihat?
+                        if self._last_seen_time is not None:
+                            gap = now - self._last_seen_time
+                            if gap >= self.grace_period_seconds:
+                                # Melewati grace period → reset timer
+                                print(
+                                    f"[ZONE-TRACKER] Grace period exceeded ({gap:.0f}s >= "
+                                    f"{self.grace_period_seconds}s), resetting continuous timer.",
+                                    flush=True
+                                )
+                                self._continuous_seconds = 0.0
+                    # else: masih dalam debounce window, belum ubah status
 
     @property
     def accumulated_minutes(self) -> float:
         with self.lock:
-            return self.accumulated_seconds / 60.0
+            return self._continuous_seconds / 60.0
+
+    @property
+    def accumulated_seconds(self) -> float:
+        with self.lock:
+            return self._continuous_seconds
+
+    @property
+    def is_person_present(self) -> bool:
+        with self.lock:
+            return self._is_present_debounced
 
     def snapshot(self) -> dict:
         with self.lock:
             return {
                 "hour_label": self.hour_label,
-                "accumulated_seconds": round(self.accumulated_seconds, 1),
-                "accumulated_minutes": round(self.accumulated_seconds / 60.0, 2),
-                "is_person_present": self.is_person_present,
+                "accumulated_seconds": round(self._continuous_seconds, 1),
+                "accumulated_minutes": round(self._continuous_seconds / 60.0, 2),
+                "is_person_present": self._is_present_debounced,
+                "grace_period_seconds": self.grace_period_seconds,
             }
+
+
+# Alias lama untuk backward compatibility
+ZoneCycleTracker = ZoneContinuousTracker
 
 
 # ═══════════════════════════════════════════════════════
@@ -172,11 +265,18 @@ class ZoneDatabase:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
-        try:
-            cur.execute("ALTER TABLE zones ADD COLUMN cycle_hours INTEGER DEFAULT 1")
-            conn.commit()
-        except Exception:
-            pass
+
+        # Migrasi kolom baru (aman jika sudah ada — akan gagal silent)
+        for migration in [
+            "ALTER TABLE zones ADD COLUMN cycle_hours INTEGER DEFAULT 1",
+            "ALTER TABLE zones ADD COLUMN start_hour TEXT DEFAULT '08:00'",
+            "ALTER TABLE zones ADD COLUMN grace_period_seconds INTEGER DEFAULT 60",
+        ]:
+            try:
+                cur.execute(migration)
+                conn.commit()
+            except Exception:
+                pass
 
         conn.commit()
         conn.close()
@@ -187,8 +287,9 @@ class ZoneDatabase:
         cur = conn.cursor()
         cur.execute("""
             INSERT OR REPLACE INTO zones
-                (zone_id, cam_id, name, coords_json, threshold_minutes, cycle_hours, telegram_enabled, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                (zone_id, cam_id, name, coords_json, threshold_minutes, cycle_hours,
+                 telegram_enabled, start_hour, grace_period_seconds, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """, (
             zone.zone_id,
             zone.cam_id,
@@ -197,6 +298,8 @@ class ZoneDatabase:
             zone.threshold_minutes,
             zone.cycle_hours,
             1 if zone.telegram_enabled else 0,
+            zone.start_hour,
+            zone.grace_period_seconds,
         ))
         conn.commit()
         conn.close()
@@ -207,30 +310,32 @@ class ZoneDatabase:
         conn.commit()
         conn.close()
 
+    def _row_to_zone(self, row) -> Optional[ZoneConfig]:
+        try:
+            coords = json.loads(row["coords_json"])
+            keys = row.keys()
+            return ZoneConfig(
+                zone_id=row["zone_id"],
+                cam_id=row["cam_id"],
+                name=row["name"],
+                coords=coords,
+                threshold_minutes=row["threshold_minutes"],
+                cycle_hours=row["cycle_hours"] if "cycle_hours" in keys and row["cycle_hours"] else 1,
+                telegram_enabled=bool(row["telegram_enabled"]),
+                start_hour=row["start_hour"] if "start_hour" in keys and row["start_hour"] else "08:00",
+                grace_period_seconds=row["grace_period_seconds"] if "grace_period_seconds" in keys and row["grace_period_seconds"] is not None else 60,
+            )
+        except Exception as e:
+            print(f"[ZONE-DB] Error parsing zone row: {e}", flush=True)
+            return None
+
     def load_all_zones(self) -> List[ZoneConfig]:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("SELECT * FROM zones ORDER BY cam_id, id")
         rows = cur.fetchall()
         conn.close()
-        result = []
-        for row in rows:
-            try:
-                coords = json.loads(row["coords_json"])
-                keys = row.keys()
-                c_hours = row["cycle_hours"] if "cycle_hours" in keys and row["cycle_hours"] else 1
-                result.append(ZoneConfig(
-                    zone_id=row["zone_id"],
-                    cam_id=row["cam_id"],
-                    name=row["name"],
-                    coords=coords,
-                    threshold_minutes=row["threshold_minutes"],
-                    cycle_hours=c_hours,
-                    telegram_enabled=bool(row["telegram_enabled"]),
-                ))
-            except Exception as e:
-                print(f"[ZONE-DB] Error loading zone {row['zone_id']}: {e}", flush=True)
-        return result
+        return [z for z in (self._row_to_zone(r) for r in rows) if z is not None]
 
     def load_zones_for_camera(self, cam_id: int) -> List[ZoneConfig]:
         conn = self._connect()
@@ -238,24 +343,7 @@ class ZoneDatabase:
         cur.execute("SELECT * FROM zones WHERE cam_id = ? ORDER BY id", (cam_id,))
         rows = cur.fetchall()
         conn.close()
-        result = []
-        for row in rows:
-            try:
-                coords = json.loads(row["coords_json"])
-                keys = row.keys()
-                c_hours = row["cycle_hours"] if "cycle_hours" in keys and row["cycle_hours"] else 1
-                result.append(ZoneConfig(
-                    zone_id=row["zone_id"],
-                    cam_id=row["cam_id"],
-                    name=row["name"],
-                    coords=coords,
-                    threshold_minutes=row["threshold_minutes"],
-                    cycle_hours=c_hours,
-                    telegram_enabled=bool(row["telegram_enabled"]),
-                ))
-            except Exception:
-                pass
-        return result
+        return [z for z in (self._row_to_zone(r) for r in rows) if z is not None]
 
     def log_event(self, zone: ZoneConfig, cycle_label: str,
                   accumulated_minutes: float, alert_type: Optional[str],
@@ -312,11 +400,6 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
        menentukan "orang berdiri di mana".
     3. Juga hitung intersection area ratio sebagai fallback.
     4. Return True jika salah satu kondisi terpenuhi.
-
-    Args:
-        bbox: (x1, y1, x2, y2) dalam pixel
-        zone_coords_norm: list of [x_norm, y_norm] (0.0–1.0)
-        frame_w, frame_h: ukuran frame dalam pixel
     """
     if len(zone_coords_norm) < 3:
         return False
@@ -366,31 +449,44 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
 
 def draw_zones_on_frame(frame: np.ndarray,
                         zones: List[ZoneConfig],
-                        trackers: Dict[str, ZoneCycleTracker]) -> np.ndarray:
+                        trackers: Dict[str, "ZoneContinuousTracker"],
+                        person_bboxes: Optional[List[Tuple[int, int, int, int]]] = None) -> np.ndarray:
     """
-    Gambar overlay zona di atas frame dengan warna status:
-    - Hijau: zona normal (orang hadir cukup)
-    - Kuning: mendekati threshold
-    - Merah: orang tidak ada / kurang dari threshold
+    Gambar overlay zona di atas frame dengan:
+    - Warna berdasarkan status kehadiran & progress threshold
+    - Label zona + status (Hadir/Tidak Hadir) + akumulasi menit real-time
+    - Bounding box orang yang terdeteksi (opsional)
     """
     if frame is None:
         return frame
     h, w = frame.shape[:2]
     overlay = frame.copy()
 
+    # Gambar bounding box person (mode AI zone_monitor)
+    if person_bboxes:
+        for (bx1, by1, bx2, by2) in person_bboxes:
+            cv2.rectangle(frame, (bx1, by1), (bx2, by2), (0, 255, 200), 2)
+            cv2.putText(frame, "Person", (bx1 + 4, by1 - 6),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 200), 1, cv2.LINE_AA)
+
     for zone in zones:
         tracker = trackers.get(zone.zone_id)
         accum_min = tracker.accumulated_minutes if tracker else 0.0
+        is_present = tracker.is_person_present if tracker else False
         threshold = zone.threshold_minutes
         ratio = accum_min / threshold if threshold > 0 else 1.0
 
-        # Warna berdasarkan progress
-        if ratio >= 1.0:
-            color = (0, 220, 0)      # Hijau: aman
-        elif ratio >= 0.5:
-            color = (0, 180, 255)    # Orange: separuh jalan
+        # Warna berdasarkan status kehadiran
+        if is_present:
+            if ratio >= 1.0:
+                color = (0, 220, 60)     # Hijau terang: hadir & sudah cukup
+            else:
+                color = (0, 180, 255)    # Orange: hadir, belum cukup
         else:
-            color = (0, 50, 220)     # Merah: kritis
+            if ratio >= 1.0:
+                color = (40, 200, 40)    # Hijau redup: sudah cukup tapi sedang absen
+            else:
+                color = (0, 50, 220)     # Merah: tidak hadir & belum cukup
 
         # Konversi koordinat zona
         pts = np.array(
@@ -403,17 +499,19 @@ def draw_zones_on_frame(frame: np.ndarray,
         # Border zona
         cv2.polylines(frame, [pts], True, color, 2, cv2.LINE_AA)
 
-        # Label zona
+        # Label zona + status
         if len(pts) > 0:
             lx, ly = pts[0]
-            label = f"{zone.name}: {accum_min:.1f}/{threshold}m"
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-            cv2.rectangle(frame, (lx, ly - th - 6), (lx + tw + 6, ly + 2), (0, 0, 0), -1)
-            cv2.putText(frame, label, (lx + 3, ly - 3),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+            status_str = "● HADIR" if is_present else "○ TIDAK HADIR"
+            label = f"{zone.name} | {accum_min:.1f}/{threshold}m | {status_str}"
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+            cv2.rectangle(frame, (lx, ly - th - 8), (lx + tw + 8, ly + 2), (10, 10, 30), -1)
+            text_color = (80, 255, 120) if is_present else (80, 160, 255)
+            cv2.putText(frame, label, (lx + 4, ly - 4),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, text_color, 1, cv2.LINE_AA)
 
-    # Blend overlay (alpha = 0.18 untuk transparansi zone fill)
-    frame = cv2.addWeighted(overlay, 0.18, frame, 0.82, 0)
+    # Blend overlay (alpha = 0.20 untuk transparansi zone fill)
+    frame = cv2.addWeighted(overlay, 0.20, frame, 0.80, 0)
     return frame
 
 
@@ -435,7 +533,7 @@ class ZoneMonitor:
         # Semua zona: key = zone_id
         self._zones: Dict[str, ZoneConfig] = {}
         # Tracker per zona (current cycle): key = zone_id
-        self._trackers: Dict[str, ZoneCycleTracker] = {}
+        self._trackers: Dict[str, ZoneContinuousTracker] = {}
         # YOLO model untuk zone detection (lazy loaded)
         self._yolo_model = None
         self._yolo_lock = threading.Lock()
@@ -446,6 +544,9 @@ class ZoneMonitor:
         # Frame cache per kamera: key = cam_id → latest frame
         self._frames: Dict[int, np.ndarray] = {}
         self._frames_lock = threading.Lock()
+        # Frame terbaru per kamera untuk snapshot (annotated, setelah deteksi)
+        self._annotated_frames: Dict[int, np.ndarray] = {}
+        self._annotated_lock = threading.Lock()
         # Flag running
         self._running = False
         # Threads
@@ -471,7 +572,7 @@ class ZoneMonitor:
         # Inisialisasi tracker untuk jam saat ini
         self._reset_trackers()
 
-        # Scheduler thread (cek jam bulat)
+        # Scheduler thread (cek jam bulat berdasarkan start_hour)
         self._scheduler_thread = threading.Thread(
             target=self._hourly_scheduler_loop,
             name="ZoneScheduler",
@@ -501,8 +602,11 @@ class ZoneMonitor:
             hour_label = self._get_hour_label(datetime.now())
         with self._lock:
             self._current_hour_label = hour_label
-            for zone_id in self._zones:
-                self._trackers[zone_id] = ZoneCycleTracker(hour_label)
+            for zone_id, zone in self._zones.items():
+                self._trackers[zone_id] = ZoneContinuousTracker(
+                    hour_label,
+                    grace_period_seconds=zone.grace_period_seconds
+                )
         print(f"[ZONE-MONITOR] Trackers reset for cycle: {hour_label}", flush=True)
 
     # ── Pastikan detector thread berjalan untuk kamera ini
@@ -535,7 +639,7 @@ class ZoneMonitor:
     def _detector_loop(self, cam_id: int):
         """
         Thread independen: ambil frame kamera, jalankan YOLO nano deteksi person,
-        update tracker zona untuk kamera ini.
+        update tracker zona untuk kamera ini dengan debounce.
         Berjalan ~5 FPS (interval 200ms) untuk efisiensi resource.
         """
         print(f"[ZONE-DETECTOR] Loop started for cam_{cam_id}.", flush=True)
@@ -565,7 +669,7 @@ class ZoneMonitor:
                 # Jalankan YOLO nano untuk deteksi person
                 person_bboxes = self._detect_persons(frame)
 
-                # Update tracker setiap zona
+                # Update tracker setiap zona (dengan debounce built-in di ZoneContinuousTracker)
                 now = time.time()
                 with self._lock:
                     for zone in cam_zones:
@@ -579,6 +683,18 @@ class ZoneMonitor:
                             for bbox in person_bboxes
                         )
                         tracker.update(is_present, now)
+
+                # Simpan annotated frame untuk snapshot Telegram
+                try:
+                    ann_frame = frame.copy()
+                    with self._lock:
+                        all_zones_cam = [z for z in self._zones.values() if z.cam_id == cam_id]
+                        trackers_snap = {k: v for k, v in self._trackers.items()}
+                    ann_frame = draw_zones_on_frame(ann_frame, all_zones_cam, trackers_snap, person_bboxes)
+                    with self._annotated_lock:
+                        self._annotated_frames[cam_id] = ann_frame
+                except Exception:
+                    pass
 
             except Exception as e:
                 print(f"[ZONE-DETECTOR] Error cam_{cam_id}: {e}", flush=True)
@@ -632,8 +748,6 @@ class ZoneMonitor:
         with self._yolo_lock:
             if self._yolo_model is None:
                 try:
-                    import importlib
-                    # Re-use existing analytics_engine model jika sudah ada
                     from analytics_engine import yolo_model, load_yolo_model
                     m = yolo_model
                     if m is None:
@@ -644,7 +758,33 @@ class ZoneMonitor:
                     print(f"[ZONE-MONITOR] Failed to load YOLO model: {e}", flush=True)
         return self._yolo_model
 
-    # ── Scheduler: tunggu jam bulat, evaluasi, reset
+    # ── Ambil snapshot frame ter-annotated untuk kamera
+    def _get_snapshot_jpeg(self, cam_id: int) -> Optional[bytes]:
+        """
+        Ambil snapshot JPEG dari frame ter-annotated terakhir kamera ini.
+        Digunakan untuk dilampirkan ke notifikasi Telegram.
+        """
+        with self._annotated_lock:
+            frame = self._annotated_frames.get(cam_id)
+        if frame is None:
+            # Fallback: coba ambil frame mentah
+            with self._frames_lock:
+                frame = self._frames.get(cam_id)
+        if frame is None:
+            return None
+        try:
+            # Resize ke 640 lebar maksimal untuk menjaga ukuran file Telegram
+            h, w = frame.shape[:2]
+            if w > 640:
+                scale = 640.0 / w
+                frame = cv2.resize(frame, (640, int(h * scale)), interpolation=cv2.INTER_AREA)
+            ok, enc = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            return enc.tobytes() if ok else None
+        except Exception as e:
+            print(f"[ZONE-MONITOR] Snapshot encode error: {e}", flush=True)
+            return None
+
+    # ── Scheduler: tunggu jam bulat berdasarkan start_hour zona
     def _hourly_scheduler_loop(self):
         print("[ZONE-SCHEDULER] Hourly scheduler started.", flush=True)
         while self._running:
@@ -678,7 +818,10 @@ class ZoneMonitor:
                     f"[ZONE-SCHEDULER] Evaluating cycle: {prev_hour_label}",
                     flush=True
                 )
-                self._evaluate_all_zones(prev_hour_label)
+
+                # Hanya evaluasi zona yang start_hour-nya relevan dengan jam ini
+                finished_hour = (next_hour - timedelta(hours=1)).hour
+                self._evaluate_all_zones(prev_hour_label, finished_hour=finished_hour)
 
                 # Reset tracker untuk siklus baru
                 new_hour_label = self._get_hour_label(next_hour)
@@ -689,14 +832,28 @@ class ZoneMonitor:
                 time.sleep(60)
 
     # ── Evaluasi semua zona setelah siklus jam selesai
-    def _evaluate_all_zones(self, cycle_label: str):
+    def _evaluate_all_zones(self, cycle_label: str, finished_hour: Optional[int] = None):
         with self._lock:
             zones_snapshot = list(self._zones.values())
             trackers_snapshot = {k: v for k, v in self._trackers.items()}
 
-        send_alert = _get_notifier()
+        try:
+            from telegram_notifier import send_zone_alert
+        except Exception:
+            send_zone_alert = None
 
         for zone in zones_snapshot:
+            # Cek apakah zona ini aktif di jam yang baru selesai
+            # Hanya evaluasi jika jam selesai >= start_hour zona
+            if finished_hour is not None:
+                try:
+                    start_h = int(zone.start_hour.split(":")[0])
+                    if finished_hour < start_h:
+                        # Jam belum dalam jam operasional zona ini, skip
+                        continue
+                except Exception:
+                    pass
+
             tracker = trackers_snapshot.get(zone.zone_id)
             if tracker is None:
                 continue
@@ -724,18 +881,21 @@ class ZoneMonitor:
                 print(f"[ZONE-MONITOR] DB log error for {zone.zone_id}: {e}", flush=True)
 
             # Kirim notifikasi jika perlu
-            if alert_type and zone.telegram_enabled:
+            if alert_type and zone.telegram_enabled and send_zone_alert:
                 try:
-                    sent = send_alert(
+                    # Ambil snapshot frame untuk dilampirkan ke Telegram
+                    snapshot_bytes = self._get_snapshot_jpeg(zone.cam_id)
+
+                    sent = send_zone_alert(
                         zone_name=zone.name,
                         cam_id=zone.cam_id,
                         cycle_label=cycle_label,
                         accumulated_minutes=accum_min,
                         threshold_minutes=threshold,
                         alert_type=alert_type,
+                        image_bytes=snapshot_bytes,
                     )
                     if sent:
-                        # Update DB: telegram_sent = 1
                         try:
                             conn = self._db._connect()
                             conn.execute(
@@ -768,7 +928,10 @@ class ZoneMonitor:
         with self._lock:
             self._zones[zone.zone_id] = zone
             if zone.zone_id not in self._trackers:
-                self._trackers[zone.zone_id] = ZoneCycleTracker(self._current_hour_label)
+                self._trackers[zone.zone_id] = ZoneContinuousTracker(
+                    self._current_hour_label,
+                    grace_period_seconds=zone.grace_period_seconds
+                )
         self._ensure_detector_thread(zone.cam_id)
         print(f"[ZONE-MONITOR] Zone set: {zone.zone_id} '{zone.name}' cam{zone.cam_id}", flush=True)
 
@@ -801,6 +964,7 @@ class ZoneMonitor:
                     **zone.to_dict(),
                     "current_cycle": snap,
                     "is_ok": (snap.get("accumulated_minutes", 0) >= zone.threshold_minutes),
+                    "is_person_present": snap.get("is_person_present", False),
                 })
             return result
 
@@ -818,8 +982,13 @@ class ZoneMonitor:
     def get_frame_with_zones(self, cam_id: int) -> Optional[np.ndarray]:
         """
         Return frame terbaru dengan overlay zona digambar di atasnya.
-        Digunakan oleh zone monitoring panel di UI.
+        Digunakan oleh zone monitoring panel di UI atau mode AI zone_monitor.
         """
+        with self._annotated_lock:
+            frame = self._annotated_frames.get(cam_id)
+        if frame is not None:
+            return frame.copy()
+        # Fallback ke raw frame + draw
         with self._frames_lock:
             frame = self._frames.get(cam_id)
         if frame is None:

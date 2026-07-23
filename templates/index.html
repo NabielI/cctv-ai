@@ -2392,6 +2392,7 @@ code, pre, .mono, .font-mono,
                   <option value="vehicle">Tracking &amp; Penghitungan Kendaraan</option>
                   <option value="drowsiness">Deteksi Kantuk (EAR)</option>
                   <option value="pose">Pose Estimation &amp; Human Tracking</option>
+                  <option value="zone_monitor">📍 Zone Monitoring (Overlay Hadir/Absen)</option>
                 </select>
                 <div id="ai-limit-warning" style="display:none; color:#f87171; font-size:11px; margin-top:6px; font-weight:500;"></div>
               </div>
@@ -2701,10 +2702,22 @@ code, pre, .mono, .font-mono,
           <input type="number" id="zone-threshold-input" class="form-input" value="15" min="1" max="1440" style="width:100%;">
         </div>
       </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+        <div>
+          <label class="form-label" title="Jam mulai operasional zona, evaluasi hanya terjadi setelah jam ini">⏰ Jam Mulai Operasional</label>
+          <input type="time" id="zone-start-hour-input" class="form-input" value="08:00" style="width:100%;">
+          <div style="font-size:10px; color:var(--text-3); margin-top:3px;">Evaluasi dimulai dari jam ini (misal 08:00)</div>
+        </div>
+        <div>
+          <label class="form-label" title="Berapa lama orang boleh keluar zona sebelum timer continuous di-reset">⏱️ Toleransi Jeda (detik)</label>
+          <input type="number" id="zone-grace-period-input" class="form-input" value="60" min="0" max="600" style="width:100%;">
+          <div style="font-size:10px; color:var(--text-3); margin-top:3px;">Keluar singkat ≤ ini: timer tidak reset</div>
+        </div>
+      </div>
       <div style="margin-top:12px;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text);">
           <input type="checkbox" id="zone-telegram-enabled" checked style="width:15px;height:15px;cursor:pointer;">
-          Aktifkan notifikasi Telegram untuk zona ini
+          Aktifkan notifikasi Telegram (+ foto snapshot) untuk zona ini
         </label>
       </div>
     </div>
@@ -3399,46 +3412,70 @@ function drawAICanvas(d){
     });
   }
 
-  // 4. MODE: ZONE MONITOR -> Draw Zone Polygons & Bounding Boxes
+  // 4. MODE: ZONE MONITOR -> Draw Zone Polygons + Status + Timer
   if(aiMode === 'zone_monitor'){
-    const zones = d.zones || (window.zoneAllZones ? window.zoneAllZones.filter(z => z.cam_id === activeCamId) : []);
+    // Use zone_status from metadata (includes is_person_present after debounce)
+    const zoneStatusList = d.zone_status || [];
+    const statusMap = {};
+    zoneStatusList.forEach(s => { statusMap[s.zone_id] = s; });
+
+    const zones = d.zones || [];
     zones.forEach((zone) => {
       if(!zone.coords || zone.coords.length < 3) return;
       const pts = zone.coords.map(p => ({
         x: p[0] * canvas.width,
         y: p[1] * canvas.height
       }));
-      
-      const snap = (d.trackers && d.trackers[zone.zone_id]) || {};
-      const accumMin = snap.accumulated_minutes !== undefined ? snap.accumulated_minutes : 0;
+
+      const zStatus = statusMap[zone.zone_id] || {};
+      const cycle = zStatus.current_cycle || {};
+      const accumMin = cycle.accumulated_minutes !== undefined ? cycle.accumulated_minutes : 0;
+      const isPresent = cycle.is_person_present === true;
       const threshold = zone.threshold_minutes || 15;
       const cycleHrs = zone.cycle_hours || 1;
-      const isOk = accumMin >= threshold;
-      const strokeColor = isOk ? '#10B981' : '#EF4444';
-      const fillColor = isOk ? 'rgba(16, 185, 129, 0.20)' : 'rgba(239, 68, 68, 0.20)';
-      
+      const startHour = zone.start_hour || '08:00';
+
+      // Color based on presence + progress
+      let strokeColor, fillColor;
+      if(isPresent){
+        strokeColor = accumMin >= threshold ? '#10B981' : '#F59E0B';
+        fillColor = accumMin >= threshold ? 'rgba(16,185,129,0.22)' : 'rgba(245,158,11,0.22)';
+      } else {
+        strokeColor = accumMin >= threshold ? '#34D399' : '#EF4444';
+        fillColor = accumMin >= threshold ? 'rgba(52,211,153,0.15)' : 'rgba(239,68,68,0.18)';
+      }
+
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
-      for(let i = 1; i < pts.length; i++){
-        ctx.lineTo(pts[i].x, pts[i].y);
-      }
+      for(let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
       ctx.closePath();
       ctx.fillStyle = fillColor;
       ctx.fill();
       ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = 3.5;
+      ctx.lineWidth = 3;
       ctx.stroke();
-      
-      // Draw Label Badge
+
+      // Draw Label Badge (name + status + timer)
       const lx = pts[0].x;
       const ly = pts[0].y;
-      const labelText = `${zone.name}: ${accumMin.toFixed(1)}/${threshold}m (${cycleHrs}h)`;
-      ctx.font = 'bold 12px sans-serif';
+      const statusStr = isPresent ? '● HADIR' : '○ ABSEN';
+      const labelText = `${zone.name}  ${statusStr}  ${accumMin.toFixed(1)}/${threshold}m`;
+      ctx.font = 'bold 12px Inter, sans-serif';
       const tw = ctx.measureText(labelText).width;
-      ctx.fillStyle = strokeColor;
-      ctx.fillRect(lx, Math.max(0, ly - 22), tw + 14, 22);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(labelText, lx + 7, Math.max(15, ly - 6));
+      // Badge background
+      ctx.fillStyle = 'rgba(10,15,30,0.88)';
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(lx, Math.max(0, ly - 24), tw + 16, 22, 4) : ctx.rect(lx, Math.max(0, ly - 24), tw + 16, 22);
+      ctx.fill();
+      // Badge border
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(lx, Math.max(0, ly - 24), tw + 16, 22, 4) : ctx.rect(lx, Math.max(0, ly - 24), tw + 16, 22);
+      ctx.stroke();
+      // Badge text
+      ctx.fillStyle = isPresent ? '#6EE7B7' : '#FCA5A5';
+      ctx.fillText(labelText, lx + 8, Math.max(14, ly - 7));
     });
   }
 }
@@ -4271,6 +4308,8 @@ function openZoneDrawer(editZoneId = null) {
   document.getElementById('zone-threshold-input').value = 15;
   document.getElementById('zone-cycle-hours-input').value = 1;
   document.getElementById('zone-telegram-enabled').checked = true;
+  document.getElementById('zone-start-hour-input').value = '08:00';
+  document.getElementById('zone-grace-period-input').value = 60;
 
   // If editing, load existing zone data
   if (editZoneId) {
@@ -4281,6 +4320,8 @@ function openZoneDrawer(editZoneId = null) {
       document.getElementById('zone-threshold-input').value = zone.threshold_minutes;
       document.getElementById('zone-cycle-hours-input').value = zone.cycle_hours || 1;
       document.getElementById('zone-telegram-enabled').checked = zone.telegram_enabled;
+      document.getElementById('zone-start-hour-input').value = zone.start_hour || '08:00';
+      document.getElementById('zone-grace-period-input').value = zone.grace_period_seconds !== undefined ? zone.grace_period_seconds : 60;
       // Restore polygon points
       zonePoints = zone.coords.map(p => ({x: p[0], y: p[1]}));
       zonePolygonClosed = zonePoints.length >= 3;
@@ -4447,6 +4488,8 @@ async function saveZone() {
   const cycleHours = parseInt(document.getElementById('zone-cycle-hours-input').value) || 1;
   const telegramEnabled = document.getElementById('zone-telegram-enabled').checked;
   const camId = parseInt(document.getElementById('zone-cam-select').value);
+  const startHour = document.getElementById('zone-start-hour-input').value || '08:00';
+  const gracePeriod = parseInt(document.getElementById('zone-grace-period-input').value) || 60;
 
   if (!name) { toast('Nama zona wajib diisi.', 'error'); return; }
   if (zonePoints.length < 3) { toast('Gambar minimal 3 titik di atas area kamera.', 'error'); return; }
@@ -4466,7 +4509,9 @@ async function saveZone() {
         coords,
         threshold_minutes: threshold,
         cycle_hours: cycleHours,
-        telegram_enabled: telegramEnabled
+        telegram_enabled: telegramEnabled,
+        start_hour: startHour,
+        grace_period_seconds: gracePeriod
       })
     });
     const json = await res.json();

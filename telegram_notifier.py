@@ -3,9 +3,11 @@ telegram_notifier.py — Notifikasi Telegram untuk Zone Monitoring
 
 Mengirim pesan notifikasi profesional menggunakan Telegram Bot API
 dengan Markdown formatting (bold, italic, emoji) untuk tampilan yang rapi.
+Mendukung pengiriman foto (snapshot kamera) beserta teks notifikasi.
 """
 
 import os
+import io
 import time
 import requests
 from datetime import datetime
@@ -91,6 +93,70 @@ def send_message(text: str, parse_mode: str = "Markdown") -> bool:
     return False
 
 
+def send_photo(image_bytes: bytes, caption: str = "", parse_mode: str = "Markdown") -> bool:
+    """
+    Kirim foto (JPEG/PNG bytes) ke Telegram chat dengan caption.
+
+    Args:
+        image_bytes: Konten gambar dalam bytes (JPEG atau PNG)
+        caption: Teks caption yang ditampilkan di bawah foto
+        parse_mode: "Markdown" atau "HTML"
+
+    Returns:
+        True jika berhasil, False jika gagal
+    """
+    if not _is_configured():
+        print("[TELEGRAM] WARNING: Telegram belum dikonfigurasi.", flush=True)
+        return False
+
+    if not image_bytes:
+        # Fallback ke kirim teks saja
+        return send_message(caption, parse_mode=parse_mode)
+
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", TELEGRAM_CHAT_ID)
+    url = f"{_get_api_url()}/sendPhoto"
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            files = {
+                "photo": ("snapshot.jpg", io.BytesIO(image_bytes), "image/jpeg")
+            }
+            data = {
+                "chat_id": chat_id,
+                "parse_mode": parse_mode,
+            }
+            # Caption Telegram dibatasi 1024 karakter
+            if caption:
+                data["caption"] = caption[:1024]
+
+            resp = requests.post(url, data=data, files=files, timeout=30)
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("ok"):
+                    print(f"[TELEGRAM] OK Foto terkirim (message_id={result['result']['message_id']})",
+                          flush=True)
+                    return True
+                else:
+                    print(f"[TELEGRAM] ERROR sendPhoto: {result.get('description', 'unknown')}", flush=True)
+                    # Fallback ke kirim teks saja
+                    return send_message(caption, parse_mode=parse_mode)
+            else:
+                print(f"[TELEGRAM] sendPhoto HTTP {resp.status_code}: {resp.text[:200]}", flush=True)
+
+        except requests.exceptions.Timeout:
+            print(f"[TELEGRAM] TIMEOUT sendPhoto (attempt {attempt}/{MAX_RETRIES})", flush=True)
+        except requests.exceptions.ConnectionError as e:
+            print(f"[TELEGRAM] CONNECTION ERROR sendPhoto (attempt {attempt}/{MAX_RETRIES}): {e}", flush=True)
+        except Exception as e:
+            print(f"[TELEGRAM] ERROR sendPhoto: {e}", flush=True)
+
+        if attempt < MAX_RETRIES:
+            time.sleep(RETRY_DELAY)
+
+    # Final fallback: kirim teks saja
+    return send_message(caption, parse_mode=parse_mode)
+
+
 def _build_alert_message(zone_name: str,
                           cam_id: int,
                           cycle_label: str,
@@ -161,24 +227,29 @@ def send_zone_alert(zone_name: str,
                     cycle_label: str,
                     accumulated_minutes: float,
                     threshold_minutes: int,
-                    alert_type: str) -> bool:
+                    alert_type: str,
+                    image_bytes: Optional[bytes] = None) -> bool:
     """
     Kirim notifikasi Telegram untuk pelanggaran zone monitoring.
+    Jika image_bytes tersedia, kirim sebagai foto + caption.
+    Jika tidak, kirim pesan teks biasa.
 
     Args:
         zone_name: Nama zona (misal "Meja Kerja A")
         cam_id: ID kamera
         cycle_label: Label siklus jam (misal "2026-07-23 09:00")
-        accumulated_minutes: Total menit kehadiran terakumulasi
+        accumulated_minutes: Total menit kehadiran kontinyu
         threshold_minutes: Batas minimum menit yang harus terpenuhi
         alert_type: "low_presence" atau "no_presence"
+        image_bytes: Optional JPEG bytes snapshot kamera
 
     Returns:
         True jika pesan terkirim berhasil
     """
     print(
         f"[TELEGRAM] Mengirim alert '{alert_type}' untuk zona '{zone_name}' "
-        f"(cam{cam_id}) | akumulasi: {accumulated_minutes:.1f}/{threshold_minutes}m",
+        f"(cam{cam_id}) | akumulasi: {accumulated_minutes:.1f}/{threshold_minutes}m "
+        f"| snapshot: {'ya' if image_bytes else 'tidak'}",
         flush=True
     )
 
@@ -191,6 +262,8 @@ def send_zone_alert(zone_name: str,
         alert_type=alert_type,
     )
 
+    if image_bytes:
+        return send_photo(image_bytes, caption=msg, parse_mode="Markdown")
     return send_message(msg, parse_mode="Markdown")
 
 

@@ -453,6 +453,8 @@ class ZoneConfigRequest(BaseModel):
     threshold_minutes: Optional[int] = 15
     cycle_hours: Optional[int] = 1
     telegram_enabled: Optional[bool] = True
+    start_hour: Optional[str] = "08:00"        # Jam mulai operasional, format "HH:MM"
+    grace_period_seconds: Optional[int] = 60   # Toleransi jeda keluar sebelum timer reset
 
 
 @app.get("/api/zones")
@@ -477,6 +479,8 @@ def api_save_zone(req: ZoneConfigRequest):
         threshold_minutes=req.threshold_minutes or 15,
         cycle_hours=req.cycle_hours or 1,
         telegram_enabled=req.telegram_enabled if req.telegram_enabled is not None else True,
+        start_hour=req.start_hour or "08:00",
+        grace_period_seconds=req.grace_period_seconds if req.grace_period_seconds is not None else 60,
     )
     zm.set_zone(zone)
     return {"success": True, "zone_id": zone.zone_id, "message": f"Zona '{zone.name}' disimpan."}
