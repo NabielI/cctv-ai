@@ -4469,7 +4469,7 @@ async function loadZoneListDrawer() {
   if (!listEl) return;
 
   try {
-    const res = await fetch(`/api/zones?cam_id=${camId}`);
+    const res = await fetch(`/api/zones/status?cam_id=${camId}`);
     const json = await res.json();
     const zones = json.data || [];
 
@@ -4478,14 +4478,16 @@ async function loadZoneListDrawer() {
       return;
     }
 
-    listEl.innerHTML = zones.map((z, i) => `
+    listEl.innerHTML = zones.map((z, i) => {
+      const accum = (z.current_cycle?.accumulated_minutes || 0).toFixed(1);
+      return `
       <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px;
            background:var(--surface); border:1px solid var(--border); border-radius:8px;">
         <div style="display:flex;align-items:center;gap:10px;">
           <div style="width:10px;height:10px;border-radius:50%;background:${zoneColor(i)};flex-shrink:0;"></div>
           <div>
             <div style="font-size:13px;font-weight:600;color:var(--text);">${z.name}</div>
-            <div style="font-size:10px;color:var(--text-3);">Min. ${z.threshold_minutes} mnt / ${z.cycle_hours || 1} jam • ${z.telegram_enabled ? '🔔 Telegram aktif' : '🔕 Telegram off'}</div>
+            <div style="font-size:10px;color:var(--text-3);">Target: ${z.threshold_minutes} mnt / ${z.cycle_hours || 1} jam • <b>Akumulasi: ${accum} mnt</b> • ${z.telegram_enabled ? '🔔 Telegram aktif' : '🔕 Telegram off'}</div>
           </div>
         </div>
         <div style="display:flex;gap:6px;">
@@ -4497,7 +4499,7 @@ async function loadZoneListDrawer() {
           </button>
         </div>
       </div>
-    `).join('');
+    `}).join('');
   } catch(e) {
     listEl.innerHTML = `<div style="color:var(--red-text);font-size:12px;">Gagal memuat zona: ${e.message}</div>`;
   }
