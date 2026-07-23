@@ -81,6 +81,14 @@ class CameraStream:
             
             with self.lock:
                 self.frame = frame
+
+            # Continuously feed fresh frame to ZoneMonitor (24/7 background detection)
+            try:
+                from zone_monitor import get_zone_monitor
+                get_zone_monitor().feed_frame(self.cam_id, frame)
+            except Exception:
+                pass
+
             time.sleep(0.005)
         cap.release()
         print(f"[CAMERA-STREAM] Reader loop stopped for camera_{self.cam_id}", flush=True)
