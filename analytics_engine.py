@@ -1425,20 +1425,6 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
             processed, meta = process_drowsiness(cam_id, frame, state, meta)
         elif mode == 'pose':
             processed, meta = process_pose(frame, infer_fr, scale, meta)
-        elif mode == 'zone_monitor':
-            try:
-                from zone_monitor import get_zone_monitor, draw_zones_on_frame
-                zm = get_zone_monitor()
-                cam_zones = zm.get_zones(cam_id=cam_id)
-                with zm._lock:
-                    trackers = {k: v for k, v in zm._trackers.items()}
-                processed = draw_zones_on_frame(frame.copy(), cam_zones, trackers)
-                draw_text_with_bg(processed, f"AI: {act_model_name} ({act_backend})", (12, 28), (15, 23, 42), (0, 255, 120))
-                meta["mode"] = "zone_monitor"
-                meta["zones_count"] = len(cam_zones)
-            except Exception as e:
-                print(f"[ANALYTICS] Zone monitor mode error: {e}", flush=True)
-                processed = frame
         else:
             processed, meta = frame, meta
     except Exception as dispatch_err:
