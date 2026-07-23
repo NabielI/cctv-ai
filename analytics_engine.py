@@ -1309,6 +1309,9 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
     elif mode == 'drowsiness':
         act_model_name = "FaceLandmarker"
         act_backend = "MediaPipe CPU"
+    elif mode == 'zone_monitor':
+        act_model_name = "Zone Monitor"
+        act_backend = "YOLO Nano (CPU)"
     else:
         act_model_name = "YOLO26"
         act_backend = "CPU"
@@ -1327,6 +1330,19 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
                 processed, meta = process_vehicle_tracking(frame, None, 1.0, state, last_meta, cached_data=last_meta.get("tracked_objects"))
             elif mode == 'pose':
                 processed, meta = process_pose(frame, None, 1.0, last_meta, cached_pose_data=last_meta.get("pose_data"))
+            elif mode == 'zone_monitor':
+                try:
+                    from zone_monitor import get_zone_monitor, draw_zones_on_frame
+                    zm = get_zone_monitor()
+                    cam_zones = zm.get_zones(cam_id=cam_id)
+                    with zm._lock:
+                        trackers = {k: v for k, v in zm._trackers.items()}
+                    processed = draw_zones_on_frame(frame.copy(), cam_zones, trackers)
+                    draw_text_with_bg(processed, f"AI: {act_model_name} ({act_backend})", (12, 28), (15, 23, 42), (0, 255, 120))
+                    meta = last_meta
+                except Exception:
+                    processed = frame
+                    meta = last_meta
             else:
                 processed, meta = frame, last_meta
         except Exception as dispatch_err:
@@ -1417,6 +1433,7 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
                 with zm._lock:
                     trackers = {k: v for k, v in zm._trackers.items()}
                 processed = draw_zones_on_frame(frame.copy(), cam_zones, trackers)
+                draw_text_with_bg(processed, f"AI: {act_model_name} ({act_backend})", (12, 28), (15, 23, 42), (0, 255, 120))
                 meta["mode"] = "zone_monitor"
                 meta["zones_count"] = len(cam_zones)
             except Exception as e:
