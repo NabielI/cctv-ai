@@ -515,14 +515,18 @@ app.use('/api/zones', (req, res) => {
     let subPath = req.url || '';
     if (subPath === '/') subPath = '';
     const targetUrl = `http://127.0.0.1:5001/api/zones${subPath}`;
-    const payload = (req.method !== 'GET' && req.method !== 'HEAD' && req.body) ? JSON.stringify(req.body) : '';
+    const payload = (req.method !== 'GET' && req.method !== 'HEAD') 
+        ? (typeof req.body === 'object' ? JSON.stringify(req.body) : (req.body || '')) 
+        : '';
+    
     const headers = {
-        'host': '127.0.0.1:5001'
+        'host': '127.0.0.1:5001',
+        'content-type': 'application/json'
     };
     if (payload) {
-        headers['content-type'] = 'application/json';
         headers['content-length'] = Buffer.byteLength(payload);
     }
+
     const proxyReq = http.request(targetUrl, {
         method: req.method,
         headers: headers
@@ -530,13 +534,17 @@ app.use('/api/zones', (req, res) => {
         res.writeHead(proxyRes.statusCode, proxyRes.headers);
         proxyRes.pipe(res);
     });
+
     proxyReq.on('error', (err) => {
         log(`Zone proxy error: ${err.message}`, 'error');
         if (!res.headersSent) {
             res.status(500).json({ success: false, message: 'Gagal terhubung ke AI Service (Zone Monitor)' });
         }
     });
-    if (payload) proxyReq.write(payload);
+
+    if (payload) {
+        proxyReq.write(payload);
+    }
     proxyReq.end();
 });
 
