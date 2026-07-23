@@ -488,30 +488,29 @@ app.use('/api/faces', (req, res) => {
 // Proxy /api/zones/* endpoints to Python FastAPI service (Zone Monitoring)
 app.use('/api/zones', (req, res) => {
     const targetUrl = `http://127.0.0.1:5001/api/zones${req.url}`;
-    const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => {
-        const body = Buffer.concat(chunks);
-        const proxyReq = http.request(targetUrl, {
-            method: req.method,
-            headers: {
-                ...req.headers,
-                host: '127.0.0.1:5001',
-                'Content-Length': body.length
-            }
-        }, (proxyRes) => {
-            res.writeHead(proxyRes.statusCode, proxyRes.headers);
-            proxyRes.pipe(res);
-        });
-        proxyReq.on('error', (err) => {
-            log(`Zone proxy error: ${err.message}`, 'error');
-            if (!res.headersSent) {
-                res.status(500).json({ success: false, message: 'Gagal terhubung ke AI Service (Zone Monitor)' });
-            }
-        });
-        proxyReq.write(body);
-        proxyReq.end();
+    const payload = (req.method !== 'GET' && req.method !== 'HEAD' && req.body) ? JSON.stringify(req.body) : '';
+    const headers = {
+        'host': '127.0.0.1:5001'
+    };
+    if (payload) {
+        headers['content-type'] = 'application/json';
+        headers['content-length'] = Buffer.byteLength(payload);
+    }
+    const proxyReq = http.request(targetUrl, {
+        method: req.method,
+        headers: headers
+    }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
     });
+    proxyReq.on('error', (err) => {
+        log(`Zone proxy error: ${err.message}`, 'error');
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: 'Gagal terhubung ke AI Service (Zone Monitor)' });
+        }
+    });
+    if (payload) proxyReq.write(payload);
+    proxyReq.end();
 });
 
 // Resolve YouTube Live stream URL to direct HLS stream

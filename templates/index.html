@@ -4388,8 +4388,8 @@ async function saveZone() {
   const camId = parseInt(document.getElementById('zone-cam-select').value);
 
   if (!name) { toast('Nama zona wajib diisi.', 'error'); return; }
-  if (zonePoints.length < 3) { toast('Gambar minimal 3 titik untuk membentuk zona.', 'error'); return; }
-  if (!zonePolygonClosed) { toast('Tutup polygon dulu dengan double-klik atau klik titik awal.', 'error'); return; }
+  if (zonePoints.length < 3) { toast('Gambar minimal 3 titik di atas area kamera.', 'error'); return; }
+  zonePolygonClosed = true;
 
   const zoneId = zoneEditingId || `cam${camId}_zone_${Date.now()}`;
   const coords = zonePoints.map(p => [parseFloat(p.x.toFixed(4)), parseFloat(p.y.toFixed(4))]);
