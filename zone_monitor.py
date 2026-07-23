@@ -598,6 +598,14 @@ class ZoneMonitor:
         # Inisialisasi tracker untuk jam saat ini
         self._reset_trackers()
 
+        # Single unified detector thread
+        self._main_detector_thread = threading.Thread(
+            target=self._main_detector_loop,
+            name="ZoneMainDetector",
+            daemon=True
+        )
+        self._main_detector_thread.start()
+
         # Scheduler thread (cek jam bulat berdasarkan start_hour)
         self._scheduler_thread = threading.Thread(
             target=self._hourly_scheduler_loop,
@@ -606,7 +614,7 @@ class ZoneMonitor:
         )
         self._scheduler_thread.start()
 
-        print("[ZONE-MONITOR] Started. Scheduler thread running.", flush=True)
+        print("[ZONE-MONITOR] Started. Single detector and scheduler threads running.", flush=True)
 
     def stop(self):
         self._running = False
@@ -617,9 +625,6 @@ class ZoneMonitor:
         zones = self._db.load_all_zones()
         with self._lock:
             self._zones = {z.zone_id: z for z in zones}
-        cam_ids = set(z.cam_id for z in zones)
-        for cam_id in cam_ids:
-            self._ensure_detector_thread(cam_id)
         print(f"[ZONE-MONITOR] Loaded {len(zones)} zone(s) from DB.", flush=True)
 
     # ── Reset/buat ulang trackers untuk siklus jam baru
@@ -635,20 +640,6 @@ class ZoneMonitor:
                 )
         print(f"[ZONE-MONITOR] Trackers reset for cycle: {hour_label}", flush=True)
 
-    # ── Pastikan detector thread berjalan untuk kamera ini
-    def _ensure_detector_thread(self, cam_id: int):
-        if cam_id in self._detector_threads and self._detector_threads[cam_id].is_alive():
-            return
-        t = threading.Thread(
-            target=self._detector_loop,
-            args=(cam_id,),
-            name=f"ZoneDetector-cam{cam_id}",
-            daemon=True
-        )
-        self._detector_threads[cam_id] = t
-        t.start()
-        print(f"[ZONE-MONITOR] Detector thread started for cam_{cam_id}.", flush=True)
-
     # ── Feed frame dari camera stream (dipanggil dari luar)
     def feed_frame(self, cam_id: int, frame: np.ndarray):
         """
@@ -661,96 +652,86 @@ class ZoneMonitor:
         with self._frames_lock:
             self._frames[cam_id] = frame
 
-    # ── Thread deteksi YOLO per kamera
-    def _detector_loop(self, cam_id: int):
+    # ── Single Thread Detector Loop untuk Semua Kamera dengan Zona Aktif
+    def _main_detector_loop(self):
         """
-        Thread independen: ambil frame kamera, jalankan YOLO nano deteksi person,
-        update tracker zona untuk kamera ini dengan debounce.
-        Berjalan ~5 FPS (interval 200ms) untuk efisiensi resource.
+        Thread tunggal hemat CPU: iterasi setiap kamera yang memiliki zona aktif,
+        jalankan YOLO nano person detection, dan update tracker.
         """
-        print(f"[ZONE-DETECTOR] Loop started for cam_{cam_id}.", flush=True)
-        INTERVAL = 0.35  # ~3 FPS untuk zone checking (sangat hemat CPU)
-        _debug_frame_count = 0  # Counter untuk throttle log debug
+        print("[ZONE-DETECTOR] Single main detector loop started.", flush=True)
+        INTERVAL = 0.4  # ~2.5 FPS
+        _debug_counter = 0
 
         while self._running:
             try:
-                # Cek apakah ada zona aktif untuk kamera ini
+                # Ambil daftar unik camera ID yang memiliki zona aktif
                 with self._lock:
-                    cam_zones = [z for z in self._zones.values() if z.cam_id == cam_id]
+                    active_cam_ids = sorted(list(set(z.cam_id for z in self._zones.values())))
 
-                if not cam_zones:
+                if not active_cam_ids:
                     time.sleep(1.0)
                     continue
 
-                # Ambil frame terbaru
-                with self._frames_lock:
-                    frame = self._frames.get(cam_id)
+                _debug_counter += 1
+                do_debug = (_debug_counter % 25 == 1)
 
-                if frame is None:
-                    time.sleep(INTERVAL)
-                    continue
-
-                frame = frame.copy()
-                h, w = frame.shape[:2]
-
-                # Jalankan YOLO nano untuk deteksi person
-                person_bboxes = self._detect_persons(frame)
-
-                _debug_frame_count += 1
-                # Log debug setiap 30 frame (~6 detik) untuk diagnosis koordinat
-                do_debug = (_debug_frame_count % 30 == 1)
-
-                if do_debug:
-                    print(f"[ZONE-DEBUG] cam_{cam_id} | frame={w}x{h} | "
-                          f"bboxes={len(person_bboxes)} | zones={len(cam_zones)}", flush=True)
-                    for bb in person_bboxes:
-                        print(f"  [ZONE-DEBUG] bbox_px={bb}", flush=True)
-                    for z in cam_zones:
-                        first3 = z.coords[:3]
-                        px_pts = [(int(p[0]*w), int(p[1]*h)) for p in first3]
-                        print(f"  [ZONE-DEBUG] zone='{z.name}' coords_norm(first3)={first3} "
-                              f"-> px(first3)={px_pts}", flush=True)
-
-                # Update tracker setiap zona (dengan debounce built-in di ZoneContinuousTracker)
                 now = time.time()
-                with self._lock:
-                    for zone in cam_zones:
-                        tracker = self._trackers.get(zone.zone_id)
-                        if tracker is None:
-                            continue
 
-                        # Cek apakah ada person di zona ini
-                        is_present = any(
-                            is_person_in_zone(bbox, zone.coords, w, h)
-                            for bbox in person_bboxes
-                        )
-
-                        if do_debug:
-                            print(f"  [ZONE-DEBUG] zone='{zone.name}' is_present={is_present} "
-                                  f"accum={tracker.accumulated_minutes:.2f}min", flush=True)
-
-                        tracker.update(is_present, now)
-
-                # Simpan annotated frame untuk snapshot Telegram
-                try:
-                    ann_frame = frame.copy()
+                for cam_id in active_cam_ids:
                     with self._lock:
-                        all_zones_cam = [z for z in self._zones.values() if z.cam_id == cam_id]
-                        trackers_snap = {k: v for k, v in self._trackers.items()}
-                    ann_frame = draw_zones_on_frame(ann_frame, all_zones_cam, trackers_snap, person_bboxes)
-                    with self._annotated_lock:
-                        self._annotated_frames[cam_id] = ann_frame
-                except Exception:
-                    pass
+                        cam_zones = [z for z in self._zones.values() if z.cam_id == cam_id]
+                    if not cam_zones:
+                        continue
+
+                    # Ambil frame terbaru kamera ini
+                    with self._frames_lock:
+                        frame = self._frames.get(cam_id)
+
+                    if frame is None:
+                        continue
+
+                    frame = frame.copy()
+                    h, w = frame.shape[:2]
+
+                    # Deteksi person
+                    person_bboxes = self._detect_persons(frame)
+
+                    # Update tracker zona kamera ini
+                    with self._lock:
+                        for zone in cam_zones:
+                            tracker = self._trackers.get(zone.zone_id)
+                            if tracker is None:
+                                continue
+
+                            is_present = any(
+                                is_person_in_zone(bbox, zone.coords, w, h)
+                                for bbox in person_bboxes
+                            )
+
+                            if do_debug:
+                                print(f"  [ZONE-DEBUG] cam_{cam_id} | zone='{zone.name}' | "
+                                      f"is_present={is_present} | accum={tracker.accumulated_minutes:.2f}m", flush=True)
+
+                            tracker.update(is_present, now)
+
+                    # Simpan annotated frame untuk snapshot Telegram
+                    try:
+                        ann_frame = frame.copy()
+                        with self._lock:
+                            all_zones_cam = [z for z in self._zones.values() if z.cam_id == cam_id]
+                            trackers_snap = {k: v for k, v in self._trackers.items()}
+                        ann_frame = draw_zones_on_frame(ann_frame, all_zones_cam, trackers_snap, person_bboxes)
+                        with self._annotated_lock:
+                            self._annotated_frames[cam_id] = ann_frame
+                    except Exception:
+                        pass
 
             except Exception as e:
-                print(f"[ZONE-DETECTOR] Error cam_{cam_id}: {e}", flush=True)
-                import traceback
-                print(traceback.format_exc(), flush=True)
+                print(f"[ZONE-DETECTOR] Error in main loop: {e}", flush=True)
 
             time.sleep(INTERVAL)
 
-        print(f"[ZONE-DETECTOR] Loop stopped for cam_{cam_id}.", flush=True)
+        print("[ZONE-DETECTOR] Single main detector loop stopped.", flush=True)
 
     # ── YOLO nano person detection (lazy load)
     def _detect_persons(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
