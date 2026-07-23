@@ -406,12 +406,12 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
     """
     Cek apakah person bounding box berada (secara signifikan) di dalam zona.
 
-    Strategi:
+    Strategi Multi-Anchor + Dual Intersection:
     1. Konversi koordinat zona dari normalized (0-1) ke pixel.
-    2. Hitung titik pusat-bawah person (pusat kaki) — paling representatif untuk
-       menentukan "orang berdiri di mana".
-    3. Juga hitung intersection area ratio sebagai fallback.
-    4. Return True jika salah satu kondisi terpenuhi.
+    2. Uji 5 titik jangkar tubuh (Kepala, Dada, Center, Lutut, Kaki).
+       Jika SALAH SATU titik ada di dalam poligon zona, return True.
+    3. Hitung rasio overlap area irisan terhadap luas person ATAU luas zona.
+       Jika irisan >= 15% dari luas person ATAU 15% dari luas zona, return True.
     """
     if len(zone_coords_norm) < 3:
         return False
@@ -419,6 +419,8 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
         return False
 
     x1, y1, x2, y2 = bbox
+    h_bbox = max(1, y2 - y1)
+    center_x = (x1 + x2) // 2
 
     # Konversi zona ke pixel
     pts = np.array(
@@ -426,24 +428,26 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
         dtype=np.int32
     )
 
-    # Strategi 1: titik kaki (center-bottom) person dalam zona
-    feet_x = (x1 + x2) // 2
-    feet_y = y2
-    if cv2.pointPolygonTest(pts, (float(feet_x), float(feet_y)), False) >= 0:
-        return True
+    # Strategi 1: Uji 5 titik jangkar tubuh (Head, Chest, Center, Knees, Feet)
+    anchors = [
+        (float(center_x), float(y1 + int(h_bbox * 0.15))),  # Kepala / bagian atas
+        (float(center_x), float(y1 + int(h_bbox * 0.35))),  # Dada
+        (float(center_x), float((y1 + y2) // 2)),            # Center / badan
+        (float(center_x), float(y1 + int(h_bbox * 0.75))),  # Lutut / paha
+        (float(center_x), float(y2)),                       # Kaki / bagian bawah
+    ]
 
-    # Strategi 2: center person dalam zona
-    center_x = (x1 + x2) // 2
-    center_y = (y1 + y2) // 2
-    if cv2.pointPolygonTest(pts, (float(center_x), float(center_y)), False) >= 0:
-        return True
+    for pt in anchors:
+        if cv2.pointPolygonTest(pts, pt, False) >= 0:
+            return True
 
-    # Strategi 3: intersection area ratio (untuk person yang sangat besar)
-    person_area = max(1, (x2 - x1) * (y2 - y1))
+    # Strategi 2: Intersection Area Overlap Test (Dual Ratio)
+    person_area = max(1, (x2 - x1) * h_bbox)
     zone_rect_x1 = int(min(p[0] for p in zone_coords_norm) * frame_w)
     zone_rect_y1 = int(min(p[1] for p in zone_coords_norm) * frame_h)
     zone_rect_x2 = int(max(p[0] for p in zone_coords_norm) * frame_w)
     zone_rect_y2 = int(max(p[1] for p in zone_coords_norm) * frame_h)
+    zone_rect_area = max(1, (zone_rect_x2 - zone_rect_x1) * (zone_rect_y2 - zone_rect_y1))
 
     inter_x1 = max(x1, zone_rect_x1)
     inter_y1 = max(y1, zone_rect_y1)
@@ -453,7 +457,8 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
     inter_h = max(0, inter_y2 - inter_y1)
     inter_area = inter_w * inter_h
 
-    if inter_area / person_area >= ZONE_OVERLAP_THRESHOLD:
+    # Jika irisan >= 15% dari luas person ATAU 15% dari luas zona -> Hadir!
+    if (inter_area / person_area >= 0.15) or (inter_area / zone_rect_area >= 0.15):
         return True
 
     return False
