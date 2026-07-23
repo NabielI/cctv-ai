@@ -404,6 +404,7 @@ def api_video_feed(camera_id: int):
 
 
 @app.get("/stream")
+@app.get("/api/ai/stream")
 def compat_stream(cam_id: int = Query(0)):
     return StreamingResponse(
         mjpeg_generator(cam_id),

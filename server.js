@@ -466,6 +466,33 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'templates')));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
+// Proxy /api/ai/* endpoints to Python FastAPI service (port 5001)
+app.use('/api/ai', (req, res) => {
+    let subPath = req.url || '';
+    if (subPath === '/') subPath = '';
+    const targetUrl = `http://127.0.0.1:5001/api/ai${subPath}`;
+    const payload = (req.method !== 'GET' && req.method !== 'HEAD' && req.body) ? JSON.stringify(req.body) : '';
+    const headers = { 'host': '127.0.0.1:5001' };
+    if (payload) {
+        headers['content-type'] = 'application/json';
+        headers['content-length'] = Buffer.byteLength(payload);
+    }
+    const proxyReq = http.request(targetUrl, {
+        method: req.method,
+        headers: headers
+    }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+    });
+    proxyReq.on('error', (err) => {
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: 'Gagal terhubung ke AI Service' });
+        }
+    });
+    if (payload) proxyReq.write(payload);
+    proxyReq.end();
+});
+
 // Proxy /api/faces/* endpoints to Python FastAPI service (port 5001)
 app.use('/api/faces', (req, res) => {
     const targetUrl = `http://127.0.0.1:5001/api/faces${req.url}`;

@@ -3399,14 +3399,60 @@ function drawAICanvas(d){
       ctx.fillText(name, x + 6, Math.max(14, y - 7));
     });
   }
+
+  // 4. MODE: ZONE MONITOR -> Draw Zone Polygons & Bounding Boxes
+  if(aiMode === 'zone_monitor'){
+    const zones = d.zones || (window.zoneAllZones ? window.zoneAllZones.filter(z => z.cam_id === activeCamId) : []);
+    zones.forEach((zone) => {
+      if(!zone.coords || zone.coords.length < 3) return;
+      const pts = zone.coords.map(p => ({
+        x: p[0] * canvas.width,
+        y: p[1] * canvas.height
+      }));
+      
+      const snap = (d.trackers && d.trackers[zone.zone_id]) || {};
+      const accumMin = snap.accumulated_minutes !== undefined ? snap.accumulated_minutes : 0;
+      const threshold = zone.threshold_minutes || 15;
+      const cycleHrs = zone.cycle_hours || 1;
+      const isOk = accumMin >= threshold;
+      const strokeColor = isOk ? '#10B981' : '#EF4444';
+      const fillColor = isOk ? 'rgba(16, 185, 129, 0.20)' : 'rgba(239, 68, 68, 0.20)';
+      
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for(let i = 1; i < pts.length; i++){
+        ctx.lineTo(pts[i].x, pts[i].y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 3.5;
+      ctx.stroke();
+      
+      // Draw Label Badge
+      const lx = pts[0].x;
+      const ly = pts[0].y;
+      const labelText = `${zone.name}: ${accumMin.toFixed(1)}/${threshold}m (${cycleHrs}h)`;
+      ctx.font = 'bold 12px sans-serif';
+      const tw = ctx.measureText(labelText).width;
+      ctx.fillStyle = strokeColor;
+      ctx.fillRect(lx, Math.max(0, ly - 22), tw + 14, 22);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(labelText, lx + 7, Math.max(15, ly - 6));
+    });
+  }
 }
 
 function renderAIMeta(d){
   const el=document.getElementById('ai-console');
   if(!el) return;
   let lines=[];
-  lines.push(`[ENGINE] ${d.engine}`);
-  if(aiMode==='face'){
+  lines.push(`[ENGINE] ${d.engine || 'YOLO Nano'}`);
+  if(aiMode==='zone_monitor'){
+    lines.push(`[ZONA]   ${(d.zones||[]).length || (window.zoneAllZones||[]).length} zona terkonfigurasi`);
+    lines.push(`[STATUS] Zone Monitoring Aktif 24/7`);
+  }else if(aiMode==='face'){
     lines.push(`[WAJAH]  ${d.face_detected?'⚠ Terdeteksi':'Mencari...'}`);
     if(d.face_name&&d.face_name!=='None') lines.push(`[NAMA]   ${d.face_name}`);
   }else if(aiMode==='attribute'){
