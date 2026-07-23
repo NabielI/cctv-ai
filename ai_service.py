@@ -354,16 +354,11 @@ def mjpeg_generator(cam_id: int):
                 processed = frame
             camera_metadata[cam_id] = meta
 
-            # Feed frame ke ZoneMonitor and draw zone overlays on live video stream
+            # Feed frame ke ZoneMonitor (independen di background, tanpa menimpa overlay di stream AI utama)
             try:
-                from zone_monitor import get_zone_monitor, draw_zones_on_frame
+                from zone_monitor import get_zone_monitor
                 zm = get_zone_monitor()
                 zm.feed_frame(cam_id, frame)
-                cam_zones = zm.get_zones(cam_id=cam_id)
-                if cam_zones:
-                    with zm._lock:
-                        trackers = {k: v for k, v in zm._trackers.items()}
-                    processed = draw_zones_on_frame(processed, cam_zones, trackers)
             except Exception:
                 pass
 
