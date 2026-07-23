@@ -2836,22 +2836,33 @@ function toast(msg,type='info'){
 // ═══════════════════════════════════════════════════════════════
 //  TAB SWITCH
 // ═══════════════════════════════════════════════════════════════
-const TAB_TITLES={dashboard:'NVR Monitor Dashboard',logs:'System Diagnostics Console',drowsiness:'Riwayat Deteksi Kantuk (EAR)'};
-const TAB_SUBS={dashboard:'Live surveillance dashboard',logs:'Real-time log explorer & diagnostic console',drowsiness:'Eye Aspect Ratio operator tracking history'};
+const TAB_TITLES={dashboard:'NVR Monitor Dashboard',logs:'System Diagnostics Console',drowsiness:'Riwayat Deteksi Kantuk (EAR)','zone-monitor':'Multi-Area Zone Monitoring'};
+const TAB_SUBS={dashboard:'Live surveillance dashboard',logs:'Real-time log explorer & diagnostic console',drowsiness:'Eye Aspect Ratio operator tracking history','zone-monitor':'Pantau kehadiran orang per zona — notifikasi Telegram otomatis'};
 function switchTab(name){
   activeTab=name;
   document.querySelectorAll('.tab-pane').forEach(el=>el.classList.remove('active'));
-  document.getElementById(`tab-${name}`).classList.add('active');
-  ['dashboard','logs','drowsiness'].forEach(t=>{
-    document.getElementById(`nav-${t}`).classList.toggle('active',t===name);
+  const targetPane = document.getElementById(`tab-${name}`);
+  if(targetPane) targetPane.classList.add('active');
+
+  ['dashboard','logs','drowsiness','zone-monitor'].forEach(t=>{
+    const navBtn = document.getElementById(`nav-${t}`);
+    if(navBtn) navBtn.classList.toggle('active',t===name);
   });
   document.getElementById('topbar-title').textContent=TAB_TITLES[name]||name;
   document.getElementById('topbar-sub').textContent=TAB_SUBS[name]||'';
   if(logsInterval){clearInterval(logsInterval);logsInterval=null;}
+  if(typeof zoneStatusInterval !== 'undefined' && zoneStatusInterval){clearInterval(zoneStatusInterval);zoneStatusInterval=null;}
+
   if(name==='logs'){
     populateDiagDd();fetchLogs();
     logsInterval=setInterval(fetchLogs,2500);
-  }else if(name==='drowsiness'){fetchDrowsiness();}
+  }else if(name==='drowsiness'){
+    fetchDrowsiness();
+  }else if(name==='zone-monitor'){
+    fetchZoneStatus();
+    fetchZoneHistory();
+    zoneStatusInterval=setInterval(fetchZoneStatus,8000);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4182,26 +4193,6 @@ const ZONE_COLORS = [
 ];
 
 function zoneColor(idx) { return ZONE_COLORS[idx % ZONE_COLORS.length]; }
-
-// ── switchTab augmentation: handle zone-monitor tab
-const _origSwitchTab = window.switchTab;
-function switchTab(tab) {
-  if (_origSwitchTab) _origSwitchTab(tab);
-
-  // Stop/start zone status polling based on tab
-  if (tab === 'zone-monitor') {
-    fetchZoneStatus();
-    fetchZoneHistory();
-    if (!zoneStatusInterval) {
-      zoneStatusInterval = setInterval(fetchZoneStatus, 8000);
-    }
-  } else {
-    if (zoneStatusInterval) {
-      clearInterval(zoneStatusInterval);
-      zoneStatusInterval = null;
-    }
-  }
-}
 
 // ── Open Zone Drawer
 function openZoneDrawer(editZoneId = null) {
