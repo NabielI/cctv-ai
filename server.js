@@ -468,9 +468,7 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 
 // Proxy /api/ai/* endpoints to Python FastAPI service (port 5001)
 app.use('/api/ai', (req, res) => {
-    let subPath = req.url || '';
-    if (subPath === '/') subPath = '';
-    const targetUrl = `http://127.0.0.1:5001/api/ai${subPath}`;
+    const targetUrl = `http://127.0.0.1:5001${req.originalUrl}`;
     const payload = (req.method !== 'GET' && req.method !== 'HEAD' && req.body) ? JSON.stringify(req.body) : '';
     const headers = { 'host': '127.0.0.1:5001' };
     if (payload) {

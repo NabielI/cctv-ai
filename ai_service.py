@@ -172,9 +172,12 @@ def compat_register(cam: CameraRegister):
 
 
 @app.post("/mode")
-def compat_set_mode(mode_data: ModeChange):
-    cam_id = mode_data.cam_id if mode_data.cam_id is not None else 0
-    cam = camera_manager.get_camera(cam_id)
+@app.post("/api/mode")
+@app.post("/api/ai/mode")
+@app.post("/api/ai/{cam_id}/mode")
+def compat_set_mode(mode_data: ModeChange, cam_id: Optional[int] = None):
+    target_cam_id = cam_id if cam_id is not None else (mode_data.cam_id if mode_data.cam_id is not None else 0)
+    cam = camera_manager.get_camera(target_cam_id)
     if not cam:
         return JSONResponse(status_code=404, content={"success": False, "error": "Camera not registered"})
     
@@ -185,7 +188,7 @@ def compat_set_mode(mode_data: ModeChange):
     if mode_data.mode != "none":
         active_ai_count = 0
         for cid, other_cam in camera_manager.cameras.items():
-            if cid != cam_id and other_cam.get_mode() != "none":
+            if cid != target_cam_id and other_cam.get_mode() != "none":
                 active_ai_count += 1
         
         if active_ai_count >= MAX_CONCURRENT_AI_CAMERAS:
@@ -213,10 +216,12 @@ def compat_set_mode(mode_data: ModeChange):
             print(f"[AI-SERVICE] Error loading model for mode {mode_data.mode}: {e}", flush=True)
             
     cam.set_mode(mode_data.mode, mode_data.selected_classes)
-    return {"success": True, "cam_id": cam_id, "mode": mode_data.mode}
+    return {"success": True, "cam_id": target_cam_id, "mode": mode_data.mode}
 
 
 @app.get("/active_modes")
+@app.get("/api/active_modes")
+@app.get("/api/ai/active_modes")
 def api_get_active_modes():
     modes = {}
     for cid, cam in camera_manager.cameras.items():
@@ -242,7 +247,10 @@ def sanitize_metadata(obj):
 
 
 @app.get("/metadata")
-def compat_get_metadata(cam_id: int = Query(0)):
+@app.get("/api/metadata")
+@app.get("/api/ai/metadata")
+@app.get("/api/ai/{cam_id}/metadata")
+def compat_get_metadata(cam_id: int = 0):
     cam = camera_manager.get_camera(cam_id)
     mode = cam.get_mode() if cam else "none"
     sel_classes = cam.get_selected_classes() if cam else None
