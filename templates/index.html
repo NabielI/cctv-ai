@@ -4269,6 +4269,21 @@ async function loadZoneCanvasPreview() {
       zonePoints.length === 0 ? 'block' : 'none';
   };
 
+  img.onerror = () => {
+    canvas.width = container.offsetWidth || 560;
+    canvas.height = container.offsetHeight || 315;
+    zoneRedrawCanvas();
+    const hint = document.getElementById('zone-canvas-hint');
+    if (hint) {
+      hint.innerHTML =
+        '<i data-lucide="video-off" style="width:24px;height:24px;display:block;margin:0 auto 6px;color:#ef4444;"></i>' +
+        '<span style="color:#f87171;font-weight:600;">Kamera Offline / Stream Belum Siap</span><br>' +
+        '<span style="font-size:10px;color:#cbd5e1;">Anda tetap dapat menggambar zona di area canvas ini</span>';
+      hint.style.display = 'block';
+      if (window.lucide) lucide.createIcons();
+    }
+  };
+
   // Setup canvas events
   canvas.onclick = null;
   canvas.ondblclick = null;
