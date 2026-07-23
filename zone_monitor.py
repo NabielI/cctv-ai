@@ -216,7 +216,16 @@ class ZoneContinuousTracker:
     @property
     def is_person_present(self) -> bool:
         with self.lock:
-            return self._is_present_debounced
+            # 1. Jika terdeteksi / debounced active -> HADIR
+            if self._is_present_debounced:
+                return True
+            # 2. SELAMA masih dalam Grace Period (belum reset ke 0 & akumulasi > 0) -> tetap HADIR!
+            if self._last_seen_time is not None:
+                gap = time.time() - self._last_seen_time
+                if gap < self.grace_period_seconds and self._continuous_seconds > 0:
+                    return True
+            # 3. Grace period habis -> TIDAK HADIR
+            return False
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -224,7 +233,7 @@ class ZoneContinuousTracker:
                 "hour_label": self.hour_label,
                 "accumulated_seconds": round(self._continuous_seconds, 1),
                 "accumulated_minutes": round(self._continuous_seconds / 60.0, 2),
-                "is_person_present": self._is_present_debounced,
+                "is_person_present": self.is_person_present,
                 "grace_period_seconds": self.grace_period_seconds,
             }
 
@@ -758,11 +767,11 @@ class ZoneMonitor:
             with self._yolo_lock:
                 with torch.no_grad():
                     try:
-                        results = model(frame, imgsz=320, verbose=False,
-                                       conf=0.30, classes=[COCO_PERSON])
+                        results = model(frame, imgsz=416, verbose=False,
+                                       conf=0.20, classes=[COCO_PERSON])
                     except Exception:
                         results = model(frame, imgsz=640, verbose=False,
-                                       conf=0.30, classes=[COCO_PERSON])
+                                       conf=0.20, classes=[COCO_PERSON])
 
             bboxes = []
             for r in results:
@@ -771,7 +780,7 @@ class ZoneMonitor:
                     if cls != COCO_PERSON:
                         continue
                     conf = float(box.conf[0])
-                    if conf < 0.30:
+                    if conf < 0.20:
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     bboxes.append((x1, y1, x2, y2))
