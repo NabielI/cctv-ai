@@ -28,7 +28,11 @@ if row:
         for b in r.boxes:
             conf = float(b.conf[0])
             bbox = list(map(int, b.xyxy[0].tolist()))
+            w_b = max(1, bbox[2] - bbox[0])
+            h_b = max(1, bbox[3] - bbox[1])
+            ratio = h_b / w_b
             in_zone = is_person_in_zone(bbox, zone.coords, w, h)
-            print(f"Detection: conf={conf:.2f}, bbox={bbox}, IN_ZONE={in_zone}")
+            valid_person = in_zone and (ratio >= 0.85)
+            print(f"Detection: conf={conf:.2f}, bbox={bbox}, ratio={ratio:.2f}, IN_ZONE={in_zone}, VALID_PERSON={valid_person}")
 else:
     print("Zone 'nabil' not found on cam 4!")
