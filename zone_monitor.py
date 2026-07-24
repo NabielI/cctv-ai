@@ -460,8 +460,8 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
     inter_h = max(0, inter_y2 - inter_y1)
     inter_area = inter_w * inter_h
 
-    # Jika irisan >= 15% dari luas person ATAU 15% dari luas zona -> Hadir!
-    if (inter_area / person_area >= 0.15) or (inter_area / zone_rect_area >= 0.15):
+    # Jika irisan >= 25% dari luas bounding box person -> Hadir!
+    if (inter_area / person_area >= 0.25):
         return True
 
     return False
@@ -746,10 +746,10 @@ class ZoneMonitor:
                 with torch.no_grad():
                     try:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.20, classes=[COCO_PERSON])
+                                       conf=0.40, classes=[COCO_PERSON])
                     except Exception:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.20, classes=[COCO_PERSON])
+                                       conf=0.40, classes=[COCO_PERSON])
 
             bboxes = []
             for r in results:
@@ -758,7 +758,7 @@ class ZoneMonitor:
                     if cls != COCO_PERSON:
                         continue
                     conf = float(box.conf[0])
-                    if conf < 0.20:
+                    if conf < 0.40:
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     bboxes.append((x1, y1, x2, y2))
@@ -960,7 +960,9 @@ class ZoneMonitor:
                     self._current_hour_label,
                     grace_period_seconds=zone.grace_period_seconds
                 )
-        print(f"[ZONE-MONITOR] Zone set: {zone.zone_id} '{zone.name}' cam{zone.cam_id}", flush=True)
+            else:
+                self._trackers[zone.zone_id].grace_period_seconds = zone.grace_period_seconds
+        print(f"[ZONE-MONITOR] Zone set: {zone.zone_id} '{zone.name}' cam{zone.cam_id} (grace={zone.grace_period_seconds}s)", flush=True)
 
     def delete_zone(self, zone_id: str) -> bool:
         self._db.delete_zone(zone_id)
