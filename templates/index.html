@@ -4886,6 +4886,10 @@ window.addEventListener('DOMContentLoaded',()=>{
   setInterval(fetchUptime,5000);
   setInterval(renderUptime,1000);
   fetchUptime();
+  fetchZoneStatus();
+  fetchZoneHistory();
+  setInterval(fetchZoneStatus,3000);
+  setInterval(fetchZoneHistory,10000);
   startAIPolling();
 });
 </script>
