@@ -41,7 +41,7 @@ COCO_PERSON = 0
 ZONE_OVERLAP_THRESHOLD = 0.25
 
 # ── Debounce: jumlah detik berturut-turut tanpa deteksi sebelum status ke "tidak hadir"
-PRESENCE_DEBOUNCE_SECS = 8.0
+PRESENCE_DEBOUNCE_SECS = 3.0
 
 
 # ═══════════════════════════════════════════════════════
@@ -139,14 +139,13 @@ class ZoneContinuousTracker:
         raw_present: apakah orang terdeteksi di frame ini (sebelum debounce).
         """
         with self.lock:
-            effective_grace = max(30, self.grace_period_seconds)
             if raw_present:
                 # Cek apakah kedatangan ini terjadi setelah grace period habis saat absen
-                if self._last_seen_time is not None and (timestamp - self._last_seen_time >= effective_grace):
+                if self._last_seen_time is not None and (timestamp - self._last_seen_time >= self.grace_period_seconds):
                     if self._continuous_seconds > 0:
                         print(
                             f"[ZONE-TRACKER] Grace period exceeded ({timestamp - self._last_seen_time:.1f}s >= "
-                            f"{effective_grace}s). Resetting continuous timer to 0.",
+                            f"{self.grace_period_seconds}s). Resetting continuous timer to 0.",
                             flush=True
                         )
                     self._continuous_seconds = 0.0
@@ -183,16 +182,16 @@ class ZoneContinuousTracker:
                                 self._continuous_seconds += elapsed
                             self._session_start = now
                     else:
-                        # Debounce terpenuhi (3s): status awal berubah ke tidak terdeteksi
+                        # Debounce terpenuhi (3s): status real-time langsung berubah ke TIDAK HADIR
                         self._is_present_debounced = False
                         self._session_start = None
 
-                # PENTING: Cek Grace Period secara terus-menerus selama orang absen
-                if self._last_seen_time is not None and (now - self._last_seen_time >= effective_grace):
+                # Cek Grace Period secara terus-menerus selama orang absen: reset ke 0 jika absen > grace_period
+                if self._last_seen_time is not None and (now - self._last_seen_time >= self.grace_period_seconds):
                     if self._continuous_seconds > 0:
                         print(
                             f"[ZONE-TRACKER] Grace period exceeded while absent ({now - self._last_seen_time:.1f}s >= "
-                            f"{effective_grace}s). Resetting continuous timer to 0.",
+                            f"{self.grace_period_seconds}s). Resetting continuous timer to 0.",
                             flush=True
                         )
                         self._continuous_seconds = 0.0
@@ -211,16 +210,8 @@ class ZoneContinuousTracker:
     @property
     def is_person_present(self) -> bool:
         with self.lock:
-            # 1. Jika terdeteksi / debounced active -> HADIR
-            if self._is_present_debounced:
-                return True
-            # 2. SELAMA masih dalam Grace Period (belum reset ke 0 & akumulasi > 0) -> tetap HADIR!
-            if self._last_seen_time is not None:
-                gap = time.time() - self._last_seen_time
-                if gap < self.grace_period_seconds and self._continuous_seconds > 0:
-                    return True
-            # 3. Grace period habis -> TIDAK HADIR
-            return False
+            # Status real-time langsung mengikuti status deteksi (setelah 3 detik debounce)
+            return self._is_present_debounced
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -750,10 +741,10 @@ class ZoneMonitor:
                 with torch.no_grad():
                     try:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.18, classes=[COCO_PERSON])
+                                       conf=0.30, classes=[COCO_PERSON])
                     except Exception:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.18, classes=[COCO_PERSON])
+                                       conf=0.30, classes=[COCO_PERSON])
 
             bboxes = []
             for r in results:
@@ -762,7 +753,7 @@ class ZoneMonitor:
                     if cls != COCO_PERSON:
                         continue
                     conf = float(box.conf[0])
-                    if conf < 0.18:
+                    if conf < 0.30:
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     bboxes.append((x1, y1, x2, y2))
