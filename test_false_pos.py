@@ -28,7 +28,7 @@ if row:
         for b in r.boxes:
             conf = float(b.conf[0])
             bbox = list(map(int, b.xyxy[0].tolist()))
-            in_zone = is_person_in_zone(bbox, zone, (w, h))
+            in_zone = is_person_in_zone(bbox, zone, w, h)
             print(f"Detection: conf={conf:.2f}, bbox={bbox}, IN_ZONE={in_zone}")
 else:
     print("Zone 'nabil' not found on cam 4!")
