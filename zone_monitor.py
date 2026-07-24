@@ -43,6 +43,9 @@ ZONE_OVERLAP_THRESHOLD = 0.25
 # ── Debounce: jumlah detik berturut-turut tanpa deteksi sebelum status ke "tidak hadir"
 PRESENCE_DEBOUNCE_SECS = 3.0
 
+# ── Entry Debounce: minimal 2.5 detik berturut-turut terdeteksi sebelum status ke "hadir" (filter orang lewat)
+ENTRY_DEBOUNCE_SECS = 2.5
+
 
 # ═══════════════════════════════════════════════════════
 #  ZoneConfig — Konfigurasi 1 Zona
@@ -126,6 +129,8 @@ class ZoneContinuousTracker:
         self._session_start: Optional[float] = None
         # Waktu terakhir orang terdeteksi (untuk grace period + debounce)
         self._last_seen_time: Optional[float] = None
+        # Waktu pertama kali terdeteksi (untuk entry debounce filter orang lewat)
+        self._first_present_time: Optional[float] = None
         # Waktu pertama kali TIDAK terdeteksi (untuk debounce)
         self._first_absent_time: Optional[float] = None
         # Status hadir "efektif" setelah debounce
@@ -140,22 +145,30 @@ class ZoneContinuousTracker:
         """
         with self.lock:
             if raw_present:
-                self._last_seen_time = timestamp
-                self._first_absent_time = None
-                self._is_present_debounced = True
+                if self._first_present_time is None:
+                    self._first_present_time = timestamp
 
-                if self._session_start is None:
-                    self._session_start = timestamp
-                else:
-                    elapsed = timestamp - self._session_start
-                    elapsed = min(elapsed, 3.0)  # Cap max 3 detik per frame (anti-lag spike)
-                    if elapsed > 0:
-                        self._continuous_seconds += elapsed
-                    self._session_start = timestamp  # Rolling update
+                present_duration = timestamp - self._first_present_time
+
+                # Filter Orang Lewat: Hanya konfirmasi HADIR jika terdeteksi minimal ENTRY_DEBOUNCE_SECS (2.5s)
+                if present_duration >= ENTRY_DEBOUNCE_SECS or self._is_present_debounced:
+                    self._last_seen_time = timestamp
+                    self._first_absent_time = None
+                    self._is_present_debounced = True
+
+                    if self._session_start is None:
+                        self._session_start = timestamp
+                    else:
+                        elapsed = timestamp - self._session_start
+                        elapsed = min(elapsed, 3.0)  # Cap max 3 detik per frame (anti-lag spike)
+                        if elapsed > 0:
+                            self._continuous_seconds += elapsed
+                        self._session_start = timestamp  # Rolling update
 
             else:
                 # Orang tidak terdeteksi di frame ini
                 now = timestamp
+                self._first_present_time = None
 
                 if self._first_absent_time is None:
                     self._first_absent_time = now
