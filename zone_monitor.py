@@ -162,7 +162,7 @@ class ZoneContinuousTracker:
 
                 absent_duration = now - self._first_absent_time
 
-                # PENTING: Selama masih dalam Grace Period (misal <= 40s), TETAP HADIR & TETAP AKUMULASI!
+                # Selama masih dalam Grace Period (misal <= 40s), TETAP HADIR & TETAP AKUMULASI!
                 if self._last_seen_time is not None:
                     gap = now - self._last_seen_time
                     if gap < self.grace_period_seconds:
@@ -177,16 +177,11 @@ class ZoneContinuousTracker:
                             self._session_start = now
                         self._is_present_debounced = True
                     else:
-                        # Melewati grace period (misal > 40s): status TIDAK HADIR & reset timer ke 0
+                        # Melewati grace period: status TIDAK HADIR
+                        # PENTING: Waktu terakumulasi (_continuous_seconds) tetap TERJAGA aman
+                        # (TIDAK pernah di-reset ke 0 di tengah siklus jam)
                         self._is_present_debounced = False
                         self._session_start = None
-                        if self._continuous_seconds > 0:
-                            print(
-                                f"[ZONE-TRACKER] Grace period exceeded while absent ({gap:.1f}s >= "
-                                f"{self.grace_period_seconds}s). Resetting continuous timer to 0.",
-                                flush=True
-                            )
-                            self._continuous_seconds = 0.0
                 else:
                     if absent_duration >= PRESENCE_DEBOUNCE_SECS:
                         self._is_present_debounced = False
@@ -208,7 +203,7 @@ class ZoneContinuousTracker:
             # 1. Jika terdeteksi / debounced active -> HADIR
             if self._is_present_debounced:
                 return True
-            # 2. SELAMA masih dalam Grace Period (belum reset ke 0 & akumulasi > 0) -> tetap HADIR!
+            # 2. SELAMA masih dalam Grace Period (akumulasi > 0) -> tetap HADIR!
             if self._last_seen_time is not None:
                 gap = time.time() - self._last_seen_time
                 if gap < self.grace_period_seconds and self._continuous_seconds > 0:
@@ -744,10 +739,10 @@ class ZoneMonitor:
                 with torch.no_grad():
                     try:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.38, classes=[COCO_PERSON])
+                                       conf=0.25, classes=[COCO_PERSON])
                     except Exception:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.38, classes=[COCO_PERSON])
+                                       conf=0.25, classes=[COCO_PERSON])
 
             bboxes = []
             for r in results:
@@ -756,7 +751,7 @@ class ZoneMonitor:
                     if cls != COCO_PERSON:
                         continue
                     conf = float(box.conf[0])
-                    if conf < 0.38:
+                    if conf < 0.25:
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     bboxes.append((x1, y1, x2, y2))
