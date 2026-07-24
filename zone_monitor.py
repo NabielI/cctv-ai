@@ -429,7 +429,11 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
         return False
 
     x1, y1, x2, y2 = bbox
+    w_bbox = max(1, x2 - x1)
     h_bbox = max(1, y2 - y1)
+    # Filter objek horizontal (misal monitor/meja): manusia selalu memiliki tinggi/lebar >= 0.85
+    if h_bbox / w_bbox < 0.85:
+        return False
     center_x = (x1 + x2) // 2
 
     # Konversi zona ke pixel
@@ -572,6 +576,8 @@ class ZoneMonitor:
         # Frame terbaru per kamera untuk snapshot (annotated, setelah deteksi)
         self._annotated_frames: Dict[int, np.ndarray] = {}
         self._annotated_lock = threading.Lock()
+        # Frame terdahulu untuk filter objek mati berbasis motion
+        self._prev_frames: Dict[int, np.ndarray] = {}
         # Flag running
         self._running = False
         # Threads
@@ -703,6 +709,21 @@ class ZoneMonitor:
                     # Yield GIL briefly after PyTorch inference so FastAPI threads execute instantly
                     time.sleep(0.05)
 
+                    # Filter Bounding Box: Hapus objek mati (motion_score < 0.60)
+                    prev_f = self._prev_frames.get(cam_id)
+                    active_person_bboxes = []
+                    for bbox in person_bboxes:
+                        bx1, by1, bx2, by2 = bbox
+                        if prev_f is not None and prev_f.shape == frame.shape:
+                            crop_curr = cv2.cvtColor(frame[by1:by2, bx1:bx2], cv2.COLOR_BGR2GRAY)
+                            crop_prev = cv2.cvtColor(prev_f[by1:by2, bx1:bx2], cv2.COLOR_BGR2GRAY)
+                            motion_score = float(np.mean(cv2.absdiff(crop_curr, crop_prev)))
+                            if motion_score < 0.60:
+                                # Objek benar-benar mati/tidak bergerak -> abai
+                                continue
+                        active_person_bboxes.append(bbox)
+                    self._prev_frames[cam_id] = frame.copy()
+
                     # Update tracker zona kamera ini
                     with self._lock:
                         for zone in cam_zones:
@@ -712,7 +733,7 @@ class ZoneMonitor:
 
                             is_present = any(
                                 is_person_in_zone(bbox, zone.coords, w, h)
-                                for bbox in person_bboxes
+                                for bbox in active_person_bboxes
                             )
 
                             if do_debug:
