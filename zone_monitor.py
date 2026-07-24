@@ -140,68 +140,62 @@ class ZoneContinuousTracker:
         """
         with self.lock:
             if raw_present:
-                # Reset debounce counter — orang terlihat lagi
-                self._first_absent_time = None
-                self._last_seen_time = timestamp
-
-                if not self._is_present_debounced:
-                    # Orang baru masuk (atau kembali setelah jeda dalam grace period)
-                    self._is_present_debounced = True
-
-                    if self._session_start is None:
-                        # Mulai sesi baru
-                        self._session_start = timestamp
-                        # PENTING: elapsed = 0 pada frame pertama, yang benar
-
-                # Perbarui akumulasi jika sesi aktif
-                if self._session_start is not None:
+                # Cek apakah kedatangan ini terjadi setelah grace period habis saat absen
+                if self._last_seen_time is not None and (timestamp - self._last_seen_time >= self.grace_period_seconds):
+                    if self._continuous_seconds > 0:
+                        print(
+                            f"[ZONE-TRACKER] Grace period exceeded ({timestamp - self._last_seen_time:.1f}s >= "
+                            f"{self.grace_period_seconds}s). Resetting continuous timer to 0.",
+                            flush=True
+                        )
+                    self._continuous_seconds = 0.0
+                    self._session_start = timestamp
+                elif self._session_start is None:
+                    self._session_start = timestamp
+                else:
                     elapsed = timestamp - self._session_start
                     elapsed = min(elapsed, 3.0)  # Cap max 3 detik per frame (anti-lag spike)
                     if elapsed > 0:
                         self._continuous_seconds += elapsed
                     self._session_start = timestamp  # Rolling update
 
+                self._last_seen_time = timestamp
+                self._first_absent_time = None
+                self._is_present_debounced = True
+
             else:
                 # Orang tidak terdeteksi di frame ini
                 now = timestamp
 
+                if self._first_absent_time is None:
+                    self._first_absent_time = now
+
+                absent_duration = now - self._first_absent_time
+
                 if self._is_present_debounced:
-                    # Cek debounce: sudah berapa lama tidak terdeteksi?
-                    if self._first_absent_time is None:
-                        self._first_absent_time = now
-                    # PENTING: selama masih dalam debounce window, tetap akumulasikan!
-                    # Orang dianggap masih hadir selama debounce window belum habis
-                    if self._session_start is not None:
-                        elapsed = now - self._session_start
-                        elapsed = min(elapsed, 3.0)
-                        if elapsed > 0:
-                            self._continuous_seconds += elapsed
-                        self._session_start = now  # Update rolling
-
-                    absent_duration = now - self._first_absent_time
-                    if absent_duration >= PRESENCE_DEBOUNCE_SECS:
-                        # Debounce terpenuhi: orang memang sudah keluar zona
+                    if absent_duration < PRESENCE_DEBOUNCE_SECS:
+                        # Selama masih dalam debounce window (3 detik), tetap akumulasikan
+                        if self._session_start is not None:
+                            elapsed = now - self._session_start
+                            elapsed = min(elapsed, 3.0)
+                            if elapsed > 0:
+                                self._continuous_seconds += elapsed
+                            self._session_start = now
+                    else:
+                        # Debounce terpenuhi (3s): status awal berubah ke tidak terdeteksi
                         self._is_present_debounced = False
+                        self._session_start = None
 
-                        # Cek grace period: sudah berapa lama sejak terakhir terlihat?
-                        if self._last_seen_time is not None:
-                            gap = now - self._last_seen_time
-                            if gap >= self.grace_period_seconds:
-                                # Melewati grace period → reset timer ke 0 (sesi baru)
-                                print(
-                                    f"[ZONE-TRACKER] Grace period exceeded ({gap:.0f}s >= "
-                                    f"{self.grace_period_seconds}s), resetting continuous timer.",
-                                    flush=True
-                                )
-                                self._continuous_seconds = 0.0
-                                self._session_start = None
-                            else:
-                                # Masih dalam grace period: jeda sementara, jangan reset
-                                # _session_start = None agar tidak terus akumulasi saat absen
-                                self._session_start = None
-                        else:
-                            self._session_start = None
-                    # else: masih dalam debounce window, status belum berubah
+                # PENTING: Cek Grace Period secara terus-menerus selama orang absen
+                if self._last_seen_time is not None and (now - self._last_seen_time >= self.grace_period_seconds):
+                    if self._continuous_seconds > 0:
+                        print(
+                            f"[ZONE-TRACKER] Grace period exceeded while absent ({now - self._last_seen_time:.1f}s >= "
+                            f"{self.grace_period_seconds}s). Resetting continuous timer to 0.",
+                            flush=True
+                        )
+                        self._continuous_seconds = 0.0
+                        self._session_start = None
 
     @property
     def accumulated_minutes(self) -> float:
