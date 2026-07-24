@@ -1,6 +1,6 @@
 import sqlite3
 
-conn = sqlite3.connect('/home/nabil/Camera/nvr_zones.db')
+conn = sqlite3.connect('/home/nabil/Camera/zone_config.db')
 conn.row_factory = sqlite3.Row
 cur = conn.cursor()
 
