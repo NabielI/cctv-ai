@@ -41,7 +41,7 @@ COCO_PERSON = 0
 ZONE_OVERLAP_THRESHOLD = 0.25
 
 # ── Debounce: jumlah detik berturut-turut tanpa deteksi sebelum status ke "tidak hadir"
-PRESENCE_DEBOUNCE_SECS = 3.0
+PRESENCE_DEBOUNCE_SECS = 5.0
 
 
 # ═══════════════════════════════════════════════════════
@@ -431,18 +431,20 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
         dtype=np.int32
     )
 
-    # Uji 3 titik jangkar tubuh (Dada, Pusat Badan, & Duduk/Pinggul)
+    # Uji 5 titik jangkar tubuh (Kepala, Dada, Pusat Badan, Pinggul, & Lutut)
     anchors = [
-        (float(center_x), float(y1 + int(h_bbox * 0.25))),  # Dada / bagian atas
+        (float(center_x), float(y1 + int(h_bbox * 0.15))),  # Kepala / bagian atas
+        (float(center_x), float(y1 + int(h_bbox * 0.35))),  # Dada
         (float(center_x), float((y1 + y2) // 2)),            # Pusat Badan
         (float(center_x), float(y1 + int(h_bbox * 0.70))),  # Pinggul / posisi duduk
+        (float(center_x), float(y1 + int(h_bbox * 0.85))),  # Lutut / paha
     ]
 
     for pt in anchors:
         if cv2.pointPolygonTest(pts, pt, False) >= 0:
             return True
 
-    # Intersection Overlap Test (minimal 20% luas badan di dalam zona)
+    # Intersection Overlap Test (minimal 15% luas badan di dalam zona)
     person_area = max(1, (x2 - x1) * h_bbox)
     zone_rect_x1 = int(min(p[0] for p in zone_coords_norm) * frame_w)
     zone_rect_y1 = int(min(p[1] for p in zone_coords_norm) * frame_h)
@@ -457,7 +459,7 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
     inter_h = max(0, inter_y2 - inter_y1)
     inter_area = inter_w * inter_h
 
-    if (inter_area / person_area >= 0.20):
+    if (inter_area / person_area >= 0.15):
         return True
 
     return False
