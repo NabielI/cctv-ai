@@ -744,10 +744,10 @@ class ZoneMonitor:
                 with torch.no_grad():
                     try:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.30, classes=[COCO_PERSON])
+                                       conf=0.38, classes=[COCO_PERSON])
                     except Exception:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.30, classes=[COCO_PERSON])
+                                       conf=0.38, classes=[COCO_PERSON])
 
             bboxes = []
             for r in results:
@@ -756,7 +756,7 @@ class ZoneMonitor:
                     if cls != COCO_PERSON:
                         continue
                     conf = float(box.conf[0])
-                    if conf < 0.30:
+                    if conf < 0.38:
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     bboxes.append((x1, y1, x2, y2))
