@@ -139,13 +139,14 @@ class ZoneContinuousTracker:
         raw_present: apakah orang terdeteksi di frame ini (sebelum debounce).
         """
         with self.lock:
+            effective_grace = max(30, self.grace_period_seconds)
             if raw_present:
                 # Cek apakah kedatangan ini terjadi setelah grace period habis saat absen
-                if self._last_seen_time is not None and (timestamp - self._last_seen_time >= self.grace_period_seconds):
+                if self._last_seen_time is not None and (timestamp - self._last_seen_time >= effective_grace):
                     if self._continuous_seconds > 0:
                         print(
                             f"[ZONE-TRACKER] Grace period exceeded ({timestamp - self._last_seen_time:.1f}s >= "
-                            f"{self.grace_period_seconds}s). Resetting continuous timer to 0.",
+                            f"{effective_grace}s). Resetting continuous timer to 0.",
                             flush=True
                         )
                     self._continuous_seconds = 0.0
@@ -187,11 +188,11 @@ class ZoneContinuousTracker:
                         self._session_start = None
 
                 # PENTING: Cek Grace Period secara terus-menerus selama orang absen
-                if self._last_seen_time is not None and (now - self._last_seen_time >= self.grace_period_seconds):
+                if self._last_seen_time is not None and (now - self._last_seen_time >= effective_grace):
                     if self._continuous_seconds > 0:
                         print(
                             f"[ZONE-TRACKER] Grace period exceeded while absent ({now - self._last_seen_time:.1f}s >= "
-                            f"{self.grace_period_seconds}s). Resetting continuous timer to 0.",
+                            f"{effective_grace}s). Resetting continuous timer to 0.",
                             flush=True
                         )
                         self._continuous_seconds = 0.0
@@ -744,10 +745,10 @@ class ZoneMonitor:
                 with torch.no_grad():
                     try:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.25, classes=[COCO_PERSON])
+                                       conf=0.20, classes=[COCO_PERSON])
                     except Exception:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.25, classes=[COCO_PERSON])
+                                       conf=0.20, classes=[COCO_PERSON])
 
             bboxes = []
             for r in results:
@@ -756,7 +757,7 @@ class ZoneMonitor:
                     if cls != COCO_PERSON:
                         continue
                     conf = float(box.conf[0])
-                    if conf < 0.25:
+                    if conf < 0.20:
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     bboxes.append((x1, y1, x2, y2))
