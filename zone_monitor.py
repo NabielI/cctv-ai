@@ -431,18 +431,18 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
         dtype=np.int32
     )
 
-    # 1. Main Core Body Anchor Test (Torso / Dada & Pusat Tubuh)
-    # Memastikan pusat tubuh (badan) orang memang berada di dalam zona ini
-    core_anchors = [
-        (float(center_x), float(y1 + int(h_bbox * 0.40))),  # Torso / Dada
+    # Uji 3 titik jangkar tubuh (Dada, Pusat Badan, & Duduk/Pinggul)
+    anchors = [
+        (float(center_x), float(y1 + int(h_bbox * 0.25))),  # Dada / bagian atas
         (float(center_x), float((y1 + y2) // 2)),            # Pusat Badan
+        (float(center_x), float(y1 + int(h_bbox * 0.70))),  # Pinggul / posisi duduk
     ]
 
-    for pt in core_anchors:
+    for pt in anchors:
         if cv2.pointPolygonTest(pts, pt, False) >= 0:
             return True
 
-    # 2. Strict Intersection Overlap Test (minimal 40% luas badan di dalam zona)
+    # Intersection Overlap Test (minimal 20% luas badan di dalam zona)
     person_area = max(1, (x2 - x1) * h_bbox)
     zone_rect_x1 = int(min(p[0] for p in zone_coords_norm) * frame_w)
     zone_rect_y1 = int(min(p[1] for p in zone_coords_norm) * frame_h)
@@ -457,7 +457,7 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
     inter_h = max(0, inter_y2 - inter_y1)
     inter_area = inter_w * inter_h
 
-    if (inter_area / person_area >= 0.40):
+    if (inter_area / person_area >= 0.20):
         return True
 
     return False
@@ -742,10 +742,10 @@ class ZoneMonitor:
                 with torch.no_grad():
                     try:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.40, classes=[COCO_PERSON])
+                                       conf=0.28, classes=[COCO_PERSON])
                     except Exception:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.40, classes=[COCO_PERSON])
+                                       conf=0.28, classes=[COCO_PERSON])
 
             bboxes = []
             for r in results:
@@ -754,7 +754,7 @@ class ZoneMonitor:
                     if cls != COCO_PERSON:
                         continue
                     conf = float(box.conf[0])
-                    if conf < 0.40:
+                    if conf < 0.28:
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     bboxes.append((x1, y1, x2, y2))
