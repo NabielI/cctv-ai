@@ -535,6 +535,13 @@ app.use('/api/zones', (req, res) => {
         proxyRes.pipe(res);
     });
 
+    proxyReq.setTimeout(8000, () => {
+        proxyReq.destroy();
+        if (!res.headersSent) {
+            res.status(504).json({ success: false, message: 'AI Service Zone Gateway Timeout' });
+        }
+    });
+
     proxyReq.on('error', (err) => {
         log(`Zone proxy error: ${err.message}`, 'error');
         if (!res.headersSent) {

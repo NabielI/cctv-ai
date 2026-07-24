@@ -659,8 +659,7 @@ class ZoneMonitor:
         jalankan YOLO nano person detection, dan update tracker.
         """
         print("[ZONE-DETECTOR] Single main detector loop started.", flush=True)
-        INTERVAL = 0.4  # ~2.5 FPS
-        _debug_counter = 0
+        INTERVAL = 0.8  # ~1.25 FPS - efficient, responsive & keeps CPU free
 
         while self._running:
             try:
@@ -695,6 +694,9 @@ class ZoneMonitor:
 
                     # Deteksi person
                     person_bboxes = self._detect_persons(frame)
+
+                    # Yield GIL briefly after PyTorch inference so FastAPI threads execute instantly
+                    time.sleep(0.05)
 
                     # Update tracker zona kamera ini
                     with self._lock:
