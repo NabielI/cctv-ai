@@ -431,26 +431,23 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
         dtype=np.int32
     )
 
-    # Strategi 1: Uji 5 titik jangkar tubuh (Head, Chest, Center, Knees, Feet)
-    anchors = [
-        (float(center_x), float(y1 + int(h_bbox * 0.15))),  # Kepala / bagian atas
-        (float(center_x), float(y1 + int(h_bbox * 0.35))),  # Dada
-        (float(center_x), float((y1 + y2) // 2)),            # Center / badan
-        (float(center_x), float(y1 + int(h_bbox * 0.75))),  # Lutut / paha
-        (float(center_x), float(y2)),                       # Kaki / bagian bawah
+    # 1. Main Core Body Anchor Test (Torso / Dada & Pusat Tubuh)
+    # Memastikan pusat tubuh (badan) orang memang berada di dalam zona ini
+    core_anchors = [
+        (float(center_x), float(y1 + int(h_bbox * 0.40))),  # Torso / Dada
+        (float(center_x), float((y1 + y2) // 2)),            # Pusat Badan
     ]
 
-    for pt in anchors:
+    for pt in core_anchors:
         if cv2.pointPolygonTest(pts, pt, False) >= 0:
             return True
 
-    # Strategi 2: Intersection Area Overlap Test (Dual Ratio)
+    # 2. Strict Intersection Overlap Test (minimal 40% luas badan di dalam zona)
     person_area = max(1, (x2 - x1) * h_bbox)
     zone_rect_x1 = int(min(p[0] for p in zone_coords_norm) * frame_w)
     zone_rect_y1 = int(min(p[1] for p in zone_coords_norm) * frame_h)
     zone_rect_x2 = int(max(p[0] for p in zone_coords_norm) * frame_w)
     zone_rect_y2 = int(max(p[1] for p in zone_coords_norm) * frame_h)
-    zone_rect_area = max(1, (zone_rect_x2 - zone_rect_x1) * (zone_rect_y2 - zone_rect_y1))
 
     inter_x1 = max(x1, zone_rect_x1)
     inter_y1 = max(y1, zone_rect_y1)
@@ -460,8 +457,7 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
     inter_h = max(0, inter_y2 - inter_y1)
     inter_area = inter_w * inter_h
 
-    # Jika irisan >= 25% dari luas bounding box person -> Hadir!
-    if (inter_area / person_area >= 0.25):
+    if (inter_area / person_area >= 0.40):
         return True
 
     return False
