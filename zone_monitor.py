@@ -429,7 +429,12 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
         return False
 
     x1, y1, x2, y2 = bbox
+    w_bbox = max(1, x2 - x1)
     h_bbox = max(1, y2 - y1)
+    area = w_bbox * h_bbox
+    # Filter bounding box kecil / noise barang mati (manusia di zona selalu memuat area >= 5500 px)
+    if area < 5500:
+        return False
     center_x = (x1 + x2) // 2
 
     # Konversi zona ke pixel
