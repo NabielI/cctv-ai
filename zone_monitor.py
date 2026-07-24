@@ -748,10 +748,10 @@ class ZoneMonitor:
             with self._yolo_lock:
                 with torch.no_grad():
                     try:
-                        results = model(frame, imgsz=320, verbose=False,
+                        results = model(frame, imgsz=416, verbose=False,
                                        conf=0.20, classes=[COCO_PERSON])
                     except Exception:
-                        results = model(frame, imgsz=320, verbose=False,
+                        results = model(frame, imgsz=416, verbose=False,
                                        conf=0.20, classes=[COCO_PERSON])
 
             bboxes = []

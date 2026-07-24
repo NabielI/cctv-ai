@@ -2734,12 +2734,16 @@ code, pre, .mono, .font-mono,
     </div>
 
   </div>
-  <div class="drawer-footer">
-    <button class="btn-cancel-main" onclick="closeZoneDrawer()">Tutup</button>
-    <button class="btn-save-main" onclick="saveZone()">
-      <i data-lucide="save" style="width:15px;height:15px;"></i>
-      <span>Simpan Zona</span>
-    </button>
+  <div class="drawer-footer" style="display:flex; flex-direction:column; gap:10px;">
+    <div id="zone-footer-error" style="display:none; background:var(--red-light); border:1px solid var(--red-border); color:var(--red-text); padding:8px 12px; border-radius:6px; font-size:12px; font-weight:600;"></div>
+    <div style="display:flex; justify-content:flex-end; gap:8px; width:100%;">
+      <button type="button" class="btn-cancel-main" onclick="closeZoneDrawer()">Tutup</button>
+      <button type="button" class="btn-save-main" id="btn-save-zone" onclick="saveZone(event)">
+        <span class="save-spinner" id="zone-save-spinner" style="display:none;"></span>
+        <i data-lucide="save" id="zone-save-icon" style="width:15px;height:15px;"></i>
+        <span id="zone-save-label">Simpan Zona</span>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -4297,8 +4301,11 @@ function showZoneDrawerError(msg) {
   if (errBox) {
     errBox.innerHTML = msg;
     errBox.style.display = 'block';
-    const drawerBody = document.querySelector('#zone-drawer .drawer-body');
-    if (drawerBody) drawerBody.scrollTop = 0;
+  }
+  const footerErr = document.getElementById('zone-footer-error');
+  if (footerErr) {
+    footerErr.innerHTML = msg;
+    footerErr.style.display = 'block';
   }
   toast(msg, 'error');
 }
@@ -4311,6 +4318,13 @@ function openZoneDrawer(editZoneId = null) {
 
   const errBox = document.getElementById('zone-drawer-error');
   if (errBox) { errBox.style.display = 'none'; errBox.innerHTML = ''; }
+  const footerErr = document.getElementById('zone-footer-error');
+  if (footerErr) { footerErr.style.display = 'none'; footerErr.innerHTML = ''; }
+
+  const nameInput = document.getElementById('zone-name-input');
+  if (nameInput) nameInput.style.borderColor = '';
+  const canvasContainer = document.getElementById('zone-canvas') ? document.getElementById('zone-canvas').parentElement : null;
+  if (canvasContainer) canvasContainer.style.border = '';
 
   // Populate camera selector dynamically
   const sel = document.getElementById('zone-cam-select');
@@ -4516,7 +4530,8 @@ function zoneRedrawCanvas() {
 }
 
 // ── Save Zone
-async function saveZone() {
+async function saveZone(evt) {
+  if (evt) evt.preventDefault();
   const nameInput = document.getElementById('zone-name-input');
   const thresholdInput = document.getElementById('zone-threshold-input');
   const cycleInput = document.getElementById('zone-cycle-hours-input');
@@ -4524,6 +4539,16 @@ async function saveZone() {
   const camSelect = document.getElementById('zone-cam-select');
   const startHourInput = document.getElementById('zone-start-hour-input');
   const graceInput = document.getElementById('zone-grace-period-input');
+  const canvasElem = document.getElementById('zone-canvas');
+  const canvasContainer = canvasElem ? canvasElem.parentElement : null;
+
+  // Reset visual error highlights
+  if (nameInput) nameInput.style.borderColor = '';
+  if (canvasContainer) canvasContainer.style.border = '';
+  const footerErr = document.getElementById('zone-footer-error');
+  if (footerErr) { footerErr.style.display = 'none'; footerErr.innerHTML = ''; }
+  const topErr = document.getElementById('zone-drawer-error');
+  if (topErr) { topErr.style.display = 'none'; topErr.innerHTML = ''; }
 
   const name = nameInput ? nameInput.value.trim() : '';
   const threshold = thresholdInput ? (parseInt(thresholdInput.value) || 15) : 15;
@@ -4534,6 +4559,10 @@ async function saveZone() {
   const gracePeriod = graceInput ? (parseInt(graceInput.value) || 60) : 60;
 
   if (!name) {
+    if (nameInput) {
+      nameInput.style.borderColor = 'var(--red)';
+      nameInput.focus();
+    }
     showZoneDrawerError('⚠️ Nama zona wajib diisi. Silakan isi Nama Zona!');
     return;
   }
@@ -4542,10 +4571,25 @@ async function saveZone() {
     return;
   }
   if (zonePoints.length < 3) {
-    showZoneDrawerError('⚠️ Area poligon zona belum digambar! Silakan scroll ke atas dan klik minimal 3 titik pada gambar preview kamera di bagian atas drawer untuk melingkupi area yang ingin dipantau.');
+    if (canvasContainer) {
+      canvasContainer.style.border = '2px solid var(--red)';
+    }
+    const drawerBody = document.querySelector('#zone-drawer .drawer-body');
+    if (drawerBody) drawerBody.scrollTop = 0;
+    showZoneDrawerError('⚠️ Area poligon zona belum digambar! Silakan klik minimal 3 titik pada gambar preview kamera di bagian atas drawer.');
     return;
   }
   zonePolygonClosed = true;
+
+  const btn = document.getElementById('btn-save-zone');
+  const spin = document.getElementById('zone-save-spinner');
+  const ic = document.getElementById('zone-save-icon');
+  const lbl = document.getElementById('zone-save-label');
+
+  if (btn) btn.disabled = true;
+  if (spin) spin.style.display = 'inline-block';
+  if (ic) ic.style.display = 'none';
+  if (lbl) lbl.textContent = 'Menyimpan...';
 
   const zoneId = zoneEditingId || `cam${camId}_zone_${Date.now()}`;
   const coords = zonePoints.map(p => [parseFloat(p.x.toFixed(4)), parseFloat(p.y.toFixed(4))]);
@@ -4583,7 +4627,12 @@ async function saveZone() {
       showZoneDrawerError(json.detail || json.message || 'Gagal menyimpan zona.');
     }
   } catch(e) {
-    showZoneDrawerError('Error menyimpan zona: ' + e.message);
+    showZoneDrawerError('Error koneksi server saat menyimpan zona: ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+    if (spin) spin.style.display = 'none';
+    if (ic) ic.style.display = '';
+    if (lbl) lbl.textContent = 'Simpan Zona';
   }
 }
 
