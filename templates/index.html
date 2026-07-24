@@ -4610,7 +4610,13 @@ async function saveZone(evt) {
         grace_period_seconds: gracePeriod
       })
     });
-    const json = await res.json();
+    let json = {};
+    const resText = await res.text();
+    try {
+      json = JSON.parse(resText);
+    } catch(e) {
+      json = { detail: resText || `Server error (${res.status})` };
+    }
     if (res.ok && json.success) {
       toast(`Zona "${name}" berhasil disimpan!`, 'success');
       zonePoints = [];

@@ -660,6 +660,7 @@ class ZoneMonitor:
         """
         print("[ZONE-DETECTOR] Single main detector loop started.", flush=True)
         INTERVAL = 0.8  # ~1.25 FPS - efficient, responsive & keeps CPU free
+        _debug_counter = 0
 
         while self._running:
             try:
@@ -965,7 +966,6 @@ class ZoneMonitor:
                     self._current_hour_label,
                     grace_period_seconds=zone.grace_period_seconds
                 )
-        self._ensure_detector_thread(zone.cam_id)
         print(f"[ZONE-MONITOR] Zone set: {zone.zone_id} '{zone.name}' cam{zone.cam_id}", flush=True)
 
     def delete_zone(self, zone_id: str) -> bool:
