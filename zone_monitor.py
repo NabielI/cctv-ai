@@ -429,11 +429,7 @@ def is_person_in_zone(bbox: Tuple[int, int, int, int],
         return False
 
     x1, y1, x2, y2 = bbox
-    w_bbox = max(1, x2 - x1)
     h_bbox = max(1, y2 - y1)
-    # Filter objek horizontal (misal monitor/meja): manusia selalu memiliki tinggi/lebar >= 0.85
-    if h_bbox / w_bbox < 0.85:
-        return False
     center_x = (x1 + x2) // 2
 
     # Konversi zona ke pixel
@@ -703,25 +699,11 @@ class ZoneMonitor:
                     frame = frame.copy()
                     h, w = frame.shape[:2]
 
-                    # Deteksi person
-                    person_bboxes = self._detect_persons(frame)
+                    # Deteksi person (mengembalikan list of (x1, y1, x2, y2, conf))
+                    person_detections = self._detect_persons(frame)
+                    person_bboxes = [(d[0], d[1], d[2], d[3]) for d in person_detections]
 
-                    # Yield GIL briefly after PyTorch inference so FastAPI threads execute instantly
-                    time.sleep(0.05)
-
-                    # Filter Bounding Box: Hapus objek mati (motion_score < 0.60)
                     prev_f = self._prev_frames.get(cam_id)
-                    active_person_bboxes = []
-                    for bbox in person_bboxes:
-                        bx1, by1, bx2, by2 = bbox
-                        if prev_f is not None and prev_f.shape == frame.shape:
-                            crop_curr = cv2.cvtColor(frame[by1:by2, bx1:bx2], cv2.COLOR_BGR2GRAY)
-                            crop_prev = cv2.cvtColor(prev_f[by1:by2, bx1:bx2], cv2.COLOR_BGR2GRAY)
-                            motion_score = float(np.mean(cv2.absdiff(crop_curr, crop_prev)))
-                            if motion_score < 0.60:
-                                # Objek benar-benar mati/tidak bergerak -> abai
-                                continue
-                        active_person_bboxes.append(bbox)
                     self._prev_frames[cam_id] = frame.copy()
 
                     # Update tracker zona kamera ini
@@ -731,10 +713,46 @@ class ZoneMonitor:
                             if tracker is None:
                                 continue
 
-                            is_present = any(
-                                is_person_in_zone(bbox, zone.coords, w, h)
-                                for bbox in active_person_bboxes
-                            )
+                            is_already_active = tracker.is_person_present
+
+                            is_present = False
+                            for det in person_detections:
+                                bx1, by1, bx2, by2, conf = det
+
+                                # Cek keberadaan di dalam zona
+                                if not is_person_in_zone((bx1, by1, bx2, by2), zone.coords, w, h):
+                                    continue
+
+                                # 1. Jika status SUDAH HADIR (_is_present_debounced == True):
+                                #    TIDAK PERLU CEK MOTION ATAU ASPECT RATIO! Langsung terima 100%!
+                                if is_already_active:
+                                    is_present = True
+                                    break
+
+                                # 2. Jika status MASIH TIDAK HADIR (Evaluasi Entri Baru):
+                                #    - High confidence (conf >= 0.50): Langsung lolos entri!
+                                if conf >= 0.50:
+                                    is_present = True
+                                    break
+
+                                #    - Low/borderline confidence (0.22 <= conf < 0.50):
+                                #      Terapkan aspect ratio filter (ratio >= 0.70) & motion check (motion_score >= 0.30)
+                                w_b = max(1, bx2 - bx1)
+                                h_b = max(1, by2 - by1)
+                                ratio = h_b / w_b
+                                if ratio < 0.70:
+                                    continue
+
+                                if prev_f is not None and prev_f.shape == frame.shape:
+                                    crop_curr = cv2.cvtColor(frame[by1:by2, bx1:bx2], cv2.COLOR_BGR2GRAY)
+                                    crop_prev = cv2.cvtColor(prev_f[by1:by2, bx1:bx2], cv2.COLOR_BGR2GRAY)
+                                    motion_score = float(np.mean(cv2.absdiff(crop_curr, crop_prev)))
+                                    if motion_score < 0.30:
+                                        # Benda mati saat entri awal -> abai
+                                        continue
+
+                                is_present = True
+                                break
 
                             if do_debug:
                                 print(f"  [ZONE-DEBUG] cam_{cam_id} | zone='{zone.name}' | "
@@ -792,7 +810,7 @@ class ZoneMonitor:
                     if conf < 0.22:
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                    bboxes.append((x1, y1, x2, y2))
+                    bboxes.append((x1, y1, x2, y2, conf))
             return bboxes
 
         except Exception as e:
