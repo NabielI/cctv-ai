@@ -643,7 +643,7 @@ class ZoneMonitor:
         if frame is None:
             return
         with self._frames_lock:
-            self._frames[cam_id] = frame
+            self._frames[cam_id] = (frame, time.time())
 
     # ── Single Thread Detector Loop untuk Semua Kamera dengan Zona Aktif
     def _main_detector_loop(self):
@@ -678,9 +678,14 @@ class ZoneMonitor:
 
                     # Ambil frame terbaru kamera ini
                     with self._frames_lock:
-                        frame = self._frames.get(cam_id)
+                        frame_entry = self._frames.get(cam_id)
 
-                    if frame is None:
+                    if not frame_entry:
+                        continue
+
+                    frame, frame_ts = frame_entry
+                    if now - frame_ts > 6.0:
+                        # Skip frame basi jika stream kamera terhenti/jeda > 6 detik
                         continue
 
                     frame = frame.copy()
@@ -745,10 +750,10 @@ class ZoneMonitor:
                 with torch.no_grad():
                     try:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.20, classes=[COCO_PERSON])
+                                       conf=0.18, classes=[COCO_PERSON])
                     except Exception:
                         results = model(frame, imgsz=416, verbose=False,
-                                       conf=0.20, classes=[COCO_PERSON])
+                                       conf=0.18, classes=[COCO_PERSON])
 
             bboxes = []
             for r in results:
@@ -757,7 +762,7 @@ class ZoneMonitor:
                     if cls != COCO_PERSON:
                         continue
                     conf = float(box.conf[0])
-                    if conf < 0.20:
+                    if conf < 0.18:
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     bboxes.append((x1, y1, x2, y2))
