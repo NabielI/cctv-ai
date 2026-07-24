@@ -130,8 +130,8 @@ class ZoneContinuousTracker:
         self._first_absent_time: Optional[float] = None
         # Status hadir "efektif" setelah debounce
         self._is_present_debounced: bool = False
-        # Lock
-        self.lock = threading.Lock()
+        # Lock (RLock to allow re-entrant property access like is_person_present inside snapshot)
+        self.lock = threading.RLock()
 
     def update(self, raw_present: bool, timestamp: float):
         """
