@@ -1394,6 +1394,46 @@ app.post('/api/diagnose/:id/onvif', async (req, res) => {
 });
 
 
+// Generic Proxy to AI Service (Port 5001) for Zone Monitoring & Snapshots
+app.all('/api/zones*', (req, res) => {
+    const options = {
+        hostname: '127.0.0.1',
+        port: 5001,
+        path: req.originalUrl,
+        method: req.method,
+        headers: { ...req.headers }
+    };
+    delete options.headers.host;
+
+    const proxy = http.request(options, (aiRes) => {
+        res.writeHead(aiRes.statusCode, aiRes.headers);
+        aiRes.pipe(res);
+    });
+    proxy.on('error', (err) => {
+        if (!res.headersSent) res.status(502).json({ success: false, error: err.message });
+    });
+    if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body) {
+        const bodyData = JSON.stringify(req.body);
+        proxy.setHeader('Content-Type', 'application/json');
+        proxy.setHeader('Content-Length', Buffer.byteLength(bodyData));
+        proxy.write(bodyData);
+    } else {
+        req.pipe(proxy);
+        return;
+    }
+    proxy.end();
+});
+
+app.get('/api/snapshot/:id', (req, res) => {
+    const camId = req.params.id;
+    http.get(`http://127.0.0.1:5001/api/snapshot/${camId}`, (snapRes) => {
+        res.writeHead(snapRes.statusCode, snapRes.headers);
+        snapRes.pipe(res);
+    }).on('error', (err) => {
+        if (!res.headersSent) res.status(502).send('Snapshot service unavailable');
+    });
+});
+
 // Run server
 app.listen(PORT, '0.0.0.0', () => {
     log(`Server is running at http://localhost:${PORT}`);

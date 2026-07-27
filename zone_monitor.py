@@ -157,8 +157,9 @@ class ZoneContinuousTracker:
 
                 present_duration = timestamp - self._first_present_time
 
-                # Filter Orang Lewat: Hanya konfirmasi HADIR jika terdeteksi minimal ENTRY_DEBOUNCE_SECS (2.5s)
-                if present_duration >= ENTRY_DEBOUNCE_SECS or self._is_present_debounced:
+                # Filter Orang Lewat: Hanya konfirmasi HADIR jika terdeteksi minimal ENTRY_DEBOUNCE_SECS (2.5s) atau sudah terdaftar baru-baru ini
+                is_recently_seen = (self._last_seen_time is not None) and ((timestamp - self._last_seen_time) < self.grace_period_seconds)
+                if present_duration >= ENTRY_DEBOUNCE_SECS or self._is_present_debounced or is_recently_seen:
                     self._last_seen_time = timestamp
                     self._first_absent_time = None
                     self._is_present_debounced = True
@@ -167,7 +168,7 @@ class ZoneContinuousTracker:
                         self._session_start = timestamp
                     else:
                         elapsed = timestamp - self._session_start
-                        elapsed = min(elapsed, 3.0)  # Cap max 3 detik per frame (anti-lag spike)
+                        elapsed = min(elapsed, 5.0)  # Cap max 5 detik per frame (anti-lag spike)
                         if elapsed > 0:
                             self._continuous_seconds += elapsed
                         self._session_start = timestamp  # Rolling update
