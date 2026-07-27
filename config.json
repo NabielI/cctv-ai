@@ -59,7 +59,7 @@
     {
       "id": 4,
       "name": "cam2kantor",
-      "url": "rtsp://admin:telkomiot123@192.168.1.111:554/cam/realmonitor?channel=1&subtype=1",
+      "url": "rtsp://user:Nabiel126@192.168.10.133:5543/live/channel1",
       "sourceType": "rtsp",
       "originalUrl": "",
       "filePath": "",
