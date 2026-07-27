@@ -206,7 +206,40 @@ class CameraManager:
 
     def get_camera(self, camera_id):
         with self.lock:
-            return self.cameras.get(camera_id)
+            if camera_id is None:
+                return next(iter(self.cameras.values()), None) if self.cameras else None
+
+            # 1. Direct match
+            if camera_id in self.cameras:
+                return self.cameras[camera_id]
+
+            # 2. Integer lookup
+            try:
+                cid = int(camera_id)
+                if cid in self.cameras:
+                    return self.cameras[cid]
+            except (ValueError, TypeError):
+                pass
+
+            # 3. Clean string prefix (e.g. "cam_4" -> 4)
+            clean_str = str(camera_id).replace("camera_", "").replace("cam_", "").replace("cam", "")
+            try:
+                cid = int(clean_str)
+                if cid in self.cameras:
+                    return self.cameras[cid]
+            except (ValueError, TypeError):
+                pass
+
+            # 4. Search by camera attributes/names
+            target_str = str(camera_id).lower()
+            for cam in self.cameras.values():
+                if hasattr(cam, 'cam_id') and str(cam.cam_id).lower() == target_str:
+                    return cam
+                if hasattr(cam, 'name') and str(cam.name).lower() == target_str:
+                    return cam
+
+            # Fallback to first camera if available
+            return next(iter(self.cameras.values()), None) if self.cameras else None
 
     def list_cameras(self):
         with self.lock:

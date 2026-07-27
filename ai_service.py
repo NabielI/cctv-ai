@@ -20,7 +20,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Union, Any
 
 # Import modular components
 from camera_manager import CameraManager
@@ -427,7 +427,7 @@ def compat_stream(cam_id: int = Query(0)):
 
 
 @app.get("/api/snapshot/{camera_id}")
-def api_camera_snapshot(camera_id: int):
+def api_camera_snapshot(camera_id: Union[int, str]):
     """Grab latest JPEG frame from CameraManager OpenCV stream."""
     cam = camera_manager.get_camera(camera_id)
     if not cam:

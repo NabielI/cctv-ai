@@ -108,23 +108,30 @@ class ZoneConfig:
 
 class ZoneContinuousTracker:
     """
-    Melacak kehadiran orang menggunakan metode Continuous Presence Timer.
+    Melacak kehadiran orang menggunakan metode Continuous Presence Timer + Threshold Locking.
 
     Logika:
     - Selama orang HADIR: timer bertambah sesuai waktu nyata.
     - Jika orang KELUAR < grace_period_seconds: timer TIDAK reset, 
       hanya dijeda. Saat orang kembali, timer lanjut dari nilai sebelumnya.
-    - Jika orang KELUAR >= grace_period_seconds: timer di-reset ke 0 (sesi baru).
+    - Jika orang KELUAR >= grace_period_seconds SEBELUM threshold tercapai: 
+      timer di-reset ke 0 (sesi baru).
+    - SETELAH THRESHOLD TERCAPAI (misal 10m): status TERKUNCI "Aman" untuk sisa jam itu.
+      Timer TIDAK di-reset lagi ke 0 meskipun orang keluar > grace_period_seconds.
     - DEBOUNCE: status baru berubah ke "tidak hadir" hanya setelah
       PRESENCE_DEBOUNCE_SECS detik berturut-turut tidak terdeteksi.
     """
 
-    def __init__(self, hour_label: str, grace_period_seconds: int = 60):
+    def __init__(self, hour_label: str, grace_period_seconds: int = 60, threshold_minutes: int = 15):
         self.hour_label = hour_label
         self.grace_period_seconds = grace_period_seconds
+        self.threshold_minutes = threshold_minutes
+        self.threshold_seconds: float = float(threshold_minutes * 60)
 
         # Total waktu kehadiran kontinyu (detik)
         self._continuous_seconds: float = 0.0
+        # Flag status TERKUNCI "Aman" jika threshold sudah pernah tercapai dalam siklus jam ini
+        self._threshold_reached: bool = False
         # Waktu saat sesi hadir terakhir dimulai (None jika tidak hadir)
         self._session_start: Optional[float] = None
         # Waktu terakhir orang terdeteksi (untuk grace period + debounce)
@@ -165,6 +172,10 @@ class ZoneContinuousTracker:
                             self._continuous_seconds += elapsed
                         self._session_start = timestamp  # Rolling update
 
+                # Cek apakah threshold sudah tercapai
+                if self._continuous_seconds >= self.threshold_seconds:
+                    self._threshold_reached = True
+
             else:
                 # Orang tidak terdeteksi di frame ini
                 now = timestamp
@@ -173,7 +184,11 @@ class ZoneContinuousTracker:
                 if self._first_absent_time is None:
                     self._first_absent_time = now
 
-                # PENTING: Selama masih dalam Grace Period (misal <= 40s), TETAP HADIR & TETAP AKUMULASI!
+                # Cek threshold lagi (apabila saat grace period sebelumnya sudah tercapai)
+                if self._continuous_seconds >= self.threshold_seconds:
+                    self._threshold_reached = True
+
+                # PENTING: Selama masih dalam Grace Period (misal <= 60s), TETAP HADIR & TETAP AKUMULASI!
                 if self._last_seen_time is not None:
                     gap = now - self._last_seen_time
                     if gap < self.grace_period_seconds:
@@ -188,16 +203,23 @@ class ZoneContinuousTracker:
                             self._session_start = now
                         self._is_present_debounced = True
                     else:
-                        # Melewati grace period (misal > 40s): status TIDAK HADIR & RESET TIMER KE 0.0m!
+                        # Melewati grace period (misal > 60s)
                         self._is_present_debounced = False
                         self._session_start = None
-                        if self._continuous_seconds > 0:
-                            print(
-                                f"[ZONE-TRACKER] Grace period exceeded while absent ({gap:.1f}s >= "
-                                f"{self.grace_period_seconds}s). Resetting continuous timer to 0.",
-                                flush=True
-                            )
-                            self._continuous_seconds = 0.0
+
+                        if self._threshold_reached:
+                            # PENTING: Threshold sudah tercapai di jam ini, status TERKUNCI AMAN!
+                            # Jangan reset _continuous_seconds ke 0.0 walau orang meninggalkan zona.
+                            pass
+                        else:
+                            # Melewati grace period SEBELUM threshold tercapai: reset timer ke 0.0m
+                            if self._continuous_seconds > 0:
+                                print(
+                                    f"[ZONE-TRACKER] Grace period exceeded while absent ({gap:.1f}s >= "
+                                    f"{self.grace_period_seconds}s) before threshold reached. Resetting continuous timer to 0.",
+                                    flush=True
+                                )
+                                self._continuous_seconds = 0.0
                 else:
                     absent_duration = now - self._first_absent_time
                     if absent_duration >= PRESENCE_DEBOUNCE_SECS:
@@ -236,6 +258,7 @@ class ZoneContinuousTracker:
                 "accumulated_minutes": round(self._continuous_seconds / 60.0, 2),
                 "is_person_present": self.is_person_present,
                 "grace_period_seconds": self.grace_period_seconds,
+                "threshold_reached": self._threshold_reached,
             }
 
 
@@ -642,7 +665,8 @@ class ZoneMonitor:
             for zone_id, zone in self._zones.items():
                 self._trackers[zone_id] = ZoneContinuousTracker(
                     hour_label,
-                    grace_period_seconds=zone.grace_period_seconds
+                    grace_period_seconds=zone.grace_period_seconds,
+                    threshold_minutes=zone.threshold_minutes
                 )
         print(f"[ZONE-MONITOR] Trackers reset for cycle: {hour_label}", flush=True)
 
@@ -1012,11 +1036,14 @@ class ZoneMonitor:
             if zone.zone_id not in self._trackers:
                 self._trackers[zone.zone_id] = ZoneContinuousTracker(
                     self._current_hour_label,
-                    grace_period_seconds=zone.grace_period_seconds
+                    grace_period_seconds=zone.grace_period_seconds,
+                    threshold_minutes=zone.threshold_minutes
                 )
             else:
                 self._trackers[zone.zone_id].grace_period_seconds = zone.grace_period_seconds
-        print(f"[ZONE-MONITOR] Zone set: {zone.zone_id} '{zone.name}' cam{zone.cam_id} (grace={zone.grace_period_seconds}s)", flush=True)
+                self._trackers[zone.zone_id].threshold_minutes = zone.threshold_minutes
+                self._trackers[zone.zone_id].threshold_seconds = float(zone.threshold_minutes * 60)
+        print(f"[ZONE-MONITOR] Zone set: {zone.zone_id} '{zone.name}' cam{zone.cam_id} (grace={zone.grace_period_seconds}s, threshold={zone.threshold_minutes}m)", flush=True)
 
     def delete_zone(self, zone_id: str) -> bool:
         self._db.delete_zone(zone_id)
@@ -1043,10 +1070,13 @@ class ZoneMonitor:
             for zone in zones:
                 tracker = self._trackers.get(zone.zone_id)
                 snap = tracker.snapshot() if tracker else {}
+                threshold_reached = snap.get("threshold_reached", False)
+                accum_min = snap.get("accumulated_minutes", 0)
+                is_ok = threshold_reached or (accum_min >= zone.threshold_minutes)
                 result.append({
                     **zone.to_dict(),
                     "current_cycle": snap,
-                    "is_ok": (snap.get("accumulated_minutes", 0) >= zone.threshold_minutes),
+                    "is_ok": is_ok,
                     "is_person_present": snap.get("is_person_present", False),
                 })
             return result
@@ -1062,23 +1092,42 @@ class ZoneMonitor:
         self._evaluate_all_zones(cycle_label)
         return {"success": True, "cycle_label": cycle_label}
 
-    def get_frame_with_zones(self, cam_id: int) -> Optional[np.ndarray]:
+    def get_frame_with_zones(self, cam_id: Any) -> Optional[np.ndarray]:
         """
         Return frame terbaru dengan overlay zona digambar di atasnya.
         Digunakan oleh zone monitoring panel di UI atau mode AI zone_monitor.
         """
+        cids_to_try = [cam_id]
+        try:
+            cids_to_try.append(int(cam_id))
+        except (ValueError, TypeError):
+            pass
+        try:
+            cids_to_try.append(str(cam_id))
+        except Exception:
+            pass
+
+        frame = None
         with self._annotated_lock:
-            frame = self._annotated_frames.get(cam_id)
-        if frame is not None:
-            return frame.copy()
-        # Fallback ke raw frame + draw
-        with self._frames_lock:
-            frame = self._frames.get(cam_id)
+            for cid in cids_to_try:
+                if cid in self._annotated_frames:
+                    frame = self._annotated_frames[cid]
+                    break
+
         if frame is None:
+            # Fallback ke raw frame + draw
+            with self._frames_lock:
+                for cid in cids_to_try:
+                    if cid in self._frames:
+                        frame_entry = self._frames[cid]
+                        frame = frame_entry[0] if isinstance(frame_entry, tuple) else frame_entry
+                        break
+
+        if frame is None or not hasattr(frame, 'copy'):
             return None
         frame = frame.copy()
         with self._lock:
-            cam_zones = [z for z in self._zones.values() if z.cam_id == cam_id]
+            cam_zones = [z for z in self._zones.values() if str(z.cam_id) in [str(c) for c in cids_to_try]]
             trackers = {k: v for k, v in self._trackers.items()}
         return draw_zones_on_frame(frame, cam_zones, trackers)
 
