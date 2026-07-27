@@ -591,4 +591,4 @@ def api_delete_face(face_id: int):
 if __name__ == '__main__':
     import uvicorn
     print(f"[AI-SERVICE] Engine starting up with FastAPI...", flush=True)
-    uvicorn.run("ai_service:app", host="0.0.0.0", port=5001, reload=False, workers=1)
+    uvicorn.run(app, host="0.0.0.0", port=5001)
