@@ -24,7 +24,7 @@ import sqlite3
 import threading
 import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 # ── Lazy import notifier to avoid circular imports
 def _get_notifier():

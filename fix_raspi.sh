@@ -69,9 +69,9 @@ $VENV_PYTHON -c "import torchvision; print('torchvision version:', torchvision._
     fi
 }
 
-# ── STEP 6: Test load YOLO model (yolov8n.pt) ──
+# ── STEP 6: Test load YOLO26 Model ──
 echo ""
-echo "[STEP 6] Test load YOLO yolov8n.pt..."
+echo "[STEP 6] Test load YOLO26 Model (yolov8n.pt)..."
 cd "$CAMERA_DIR"
 $VENV_PYTHON -c "
 import os, sys
@@ -84,13 +84,13 @@ try:
 except Exception:
     pass
 
-print('[TEST] Loading yolov8n.pt...')
+print('[TEST] Loading YOLO26 Engine...')
 model = YOLO('yolov8n.pt')
-print('[TEST] Model loaded OK')
+print('[TEST] YOLO26 Model loaded OK')
 dummy = np.zeros((320, 320, 3), dtype=np.uint8)
-print('[TEST] Running inference...')
+print('[TEST] Running YOLO26 inference...')
 results = model(dummy, imgsz=320, verbose=False)
-print('[TEST] ✅ YOLO inference SUCCESS! Detections:', len(results[0].boxes))
+print('[TEST] ✅ YOLO26 inference SUCCESS! Detections:', len(results[0].boxes))
 " 2>&1
 YOLO_STATUS=$?
 
