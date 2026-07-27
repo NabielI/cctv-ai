@@ -31,7 +31,7 @@
     {
       "id": 2,
       "name": "Kantor_Telkom",
-      "url": "rtsp://admin:telkomiot123@192.168.1.116:554/cam/realmonitor?channel=1&subtype=1",
+      "url": "rtsp://admin:telkomiot123@192.168.1.111:554/cam/realmonitor?channel=1&subtype=1",
       "sourceType": "rtsp",
       "originalUrl": "",
       "filePath": "",
