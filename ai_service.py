@@ -428,14 +428,18 @@ def compat_stream(cam_id: int = Query(0)):
 
 @app.get("/api/snapshot/{camera_id}")
 def api_camera_snapshot(camera_id: Union[int, str]):
-    """Grab latest JPEG frame from CameraManager OpenCV stream."""
+    """Grab latest JPEG frame from CameraManager OpenCV stream with preview fallback."""
     cam = camera_manager.get_camera(camera_id)
-    if not cam:
-        raise HTTPException(status_code=404, detail="Camera not found")
-    frame = cam.get_frame()
+    frame = cam.get_frame() if cam else None
+    
     if frame is None:
-        raise HTTPException(status_code=503, detail="Frame not available yet")
-    success, encoded_img = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        cam_name = cam.name if (cam and hasattr(cam, 'name') and cam.name) else f"Kamera {camera_id}"
+        frame = np.zeros((360, 640, 3), dtype=np.uint8)
+        cv2.rectangle(frame, (0, 0), (640, 360), (35, 39, 47), -1)
+        cv2.putText(frame, f"[ {cam_name} ]", (210, 165), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2)
+        cv2.putText(frame, "Area Preview Canvas", (230, 205), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 200, 255), 1)
+
+    success, encoded_img = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
     if not success:
         raise HTTPException(status_code=500, detail="Failed to encode frame")
     return Response(content=encoded_img.tobytes(), media_type="image/jpeg")
