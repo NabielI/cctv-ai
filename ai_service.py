@@ -435,6 +435,13 @@ def api_camera_snapshot(camera_id: Union[int, str]):
     """Grab latest JPEG frame from CameraManager OpenCV stream."""
     cam = camera_manager.get_camera(camera_id)
     if not cam:
+        auto_register_cameras()
+        cam = camera_manager.get_camera(camera_id)
+
+    if not cam and camera_manager.cameras:
+        cam = next(iter(camera_manager.cameras.values()), None)
+
+    if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
     
     frame = cam.get_frame()
