@@ -59,7 +59,7 @@ except Exception:
 MAX_CONCURRENT_AI_CAMERAS = int(os.environ.get("MAX_CONCURRENT_AI_CAMERAS", 4))
 
 def auto_register_cameras():
-    config_path = "config.json"
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
     if os.path.exists(config_path):
         try:
             with open(config_path, "r") as f:
