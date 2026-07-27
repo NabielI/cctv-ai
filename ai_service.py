@@ -432,7 +432,15 @@ def api_camera_snapshot(camera_id: Union[int, str]):
     cam = camera_manager.get_camera(camera_id)
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
+    
     frame = cam.get_frame()
+    if frame is None:
+        for _ in range(20):
+            time.sleep(0.1)
+            frame = cam.get_frame()
+            if frame is not None:
+                break
+
     if frame is None:
         raise HTTPException(status_code=503, detail="Frame not available yet")
     success, encoded_img = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
