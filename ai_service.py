@@ -70,7 +70,7 @@ def auto_register_cameras():
                 if cam_id is not None and url:
                     name = cam.get("name")
                     print(f"[AI-SERVICE] Auto-registering camera_{cam_id} ({name}): {url}", flush=True)
-                    camera_manager.add_camera(cam_id, url, name=name)
+                    camera_manager.add_camera(cam_id, url)
         except Exception as e:
             print(f"[AI-SERVICE] Error in auto-registering cameras: {e}", flush=True)
 
