@@ -74,6 +74,9 @@ def auto_register_cameras():
         except Exception as e:
             print(f"[AI-SERVICE] Error in auto-registering cameras: {e}", flush=True)
 
+# Register cameras immediately at module load
+auto_register_cameras()
+
 @app.on_event("startup")
 def startup_event():
     auto_register_cameras()
