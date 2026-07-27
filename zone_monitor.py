@@ -753,33 +753,12 @@ class ZoneMonitor:
                                 if not is_person_in_zone((bx1, by1, bx2, by2), zone.coords, w, h):
                                     continue
 
-                                # 1. Jika status SUDAH HADIR (_is_present_debounced == True):
-                                #    TIDAK PERLU CEK MOTION ATAU ASPECT RATIO! Langsung terima 100%!
-                                if is_already_active:
-                                    is_present = True
-                                    break
-
-                                # 2. Jika status MASIH TIDAK HADIR (Evaluasi Entri Baru):
-                                #    - High confidence (conf >= 0.50): Langsung lolos entri!
-                                if conf >= 0.50:
-                                    is_present = True
-                                    break
-
-                                #    - Low/borderline confidence (0.22 <= conf < 0.50):
-                                #      Terapkan aspect ratio filter (ratio >= 0.70) & motion check (motion_score >= 0.30)
+                                # Aspect ratio postur manusia wajar (h/w >= 0.55)
                                 w_b = max(1, bx2 - bx1)
                                 h_b = max(1, by2 - by1)
                                 ratio = h_b / w_b
-                                if ratio < 0.70:
+                                if ratio < 0.55:
                                     continue
-
-                                if prev_f is not None and prev_f.shape == frame.shape:
-                                    crop_curr = cv2.cvtColor(frame[by1:by2, bx1:bx2], cv2.COLOR_BGR2GRAY)
-                                    crop_prev = cv2.cvtColor(prev_f[by1:by2, bx1:bx2], cv2.COLOR_BGR2GRAY)
-                                    motion_score = float(np.mean(cv2.absdiff(crop_curr, crop_prev)))
-                                    if motion_score < 0.30:
-                                        # Benda mati saat entri awal -> abai
-                                        continue
 
                                 is_present = True
                                 break
