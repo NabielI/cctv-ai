@@ -22,6 +22,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Union, Any
 
+import queue
+
 # Import modular components
 from camera_manager import CameraManager
 from analytics_engine import (
@@ -29,6 +31,9 @@ from analytics_engine import (
     register_face, get_registered_faces_list, delete_registered_face
 )
 from zone_monitor import get_zone_monitor, ZoneConfig
+from people_counter import (
+    get_counter, get_hourly_data, get_snapshots, get_track_stats
+)
 
 app = FastAPI(title="NVR AI Analytics Service")
 
@@ -596,6 +601,186 @@ def api_delete_face(face_id: int):
     if not success:
         raise HTTPException(status_code=404, detail="Data wajah tidak ditemukan")
     return {"status": "success", "message": "Data wajah berhasil dihapus"}
+
+
+# ══════════════════════════════════════════════════════════════════
+#  People Counter REST + SSE + MJPEG API
+# ══════════════════════════════════════════════════════════════════
+
+class LineConfig(BaseModel):
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
+@app.post("/api/people-counter/{cam_id}/line")
+def api_set_counter_line(cam_id: int, cfg: LineConfig):
+    """Set IN/OUT counting line in normalized coords (0.0-1.0)."""
+    for v in [cfg.x1, cfg.y1, cfg.x2, cfg.y2]:
+        if not (0.0 <= v <= 1.0):
+            raise HTTPException(status_code=400, detail=f"Koordinat harus 0.0-1.0, dapat: {v}")
+    ctr = get_counter(cam_id)
+    ctr.set_line(cfg.x1, cfg.y1, cfg.x2, cfg.y2)
+    return {"success": True, "cam_id": cam_id, "line": {"x1": cfg.x1, "y1": cfg.y1, "x2": cfg.x2, "y2": cfg.y2}}
+
+
+@app.get("/api/people-counter/{cam_id}/line")
+def api_get_counter_line(cam_id: int):
+    ctr = get_counter(cam_id)
+    return {"success": True, "cam_id": cam_id, "line": ctr.get_line()}
+
+
+@app.get("/api/people-counter/{cam_id}/status")
+def api_counter_status(cam_id: int):
+    """Real-time IN/OUT counters + unique persons + line config."""
+    ctr = get_counter(cam_id)
+    return {"success": True, "data": ctr.get_status()}
+
+
+@app.post("/api/people-counter/{cam_id}/reset")
+def api_counter_reset(cam_id: int):
+    """Reset IN/OUT in-memory counters (DB history preserved)."""
+    ctr = get_counter(cam_id)
+    with ctr.lock:
+        ctr.in_count = 0
+        ctr.out_count = 0
+        ctr.track_states = {}
+    return {"success": True, "message": f"Counter cam_{cam_id} direset. History DB tetap tersimpan."}
+
+
+@app.get("/api/people-counter/{cam_id}/snapshots")
+def api_counter_snapshots(cam_id: int, limit: int = Query(50, ge=1, le=500)):
+    """Recent crossing snapshots with track bolak-balik info."""
+    snaps = get_snapshots(cam_id, limit=limit)
+    return {"success": True, "cam_id": cam_id, "data": snaps}
+
+
+@app.get("/api/people-counter/{cam_id}/hourly")
+def api_counter_hourly(cam_id: int, date: Optional[str] = Query(None)):
+    """Hourly IN/OUT summary for chart (today or given YYYY-MM-DD)."""
+    data = get_hourly_data(cam_id, date_str=date)
+    return {"success": True, "cam_id": cam_id, "data": data}
+
+
+@app.get("/api/people-counter/{cam_id}/track-stats")
+def api_counter_track_stats(cam_id: int, limit: int = Query(100, ge=1, le=1000)):
+    """Per-track bolak-balik statistics."""
+    data = get_track_stats(cam_id, limit=limit)
+    return {"success": True, "cam_id": cam_id, "data": data}
+
+
+@app.get("/api/people-counter/{cam_id}/events")
+async def api_counter_events(cam_id: int, request: Request):
+    """
+    Server-Sent Events (SSE) endpoint — pushes crossing events in real-time.
+    Browser connects once and receives events as they happen with < 100ms latency.
+    """
+    ctr = get_counter(cam_id)
+    q: queue.Queue = queue.Queue(maxsize=100)
+    ctr.subscribe_events(q)
+
+    async def event_generator():
+        try:
+            # Send initial status immediately
+            status = ctr.get_status()
+            import json as _json
+            yield f"data: {_json.dumps({'type': 'status', **status})}\n\n"
+
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    # Non-blocking check with short timeout for keepalive
+                    ev = q.get(timeout=15)
+                    yield f"data: {_json.dumps(ev)}\n\n"
+                except queue.Empty:
+                    # SSE keepalive ping
+                    yield f": keepalive\n\n"
+        finally:
+            ctr.unsubscribe_events(q)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*"
+        }
+    )
+
+
+def _people_counter_mjpeg(cam_id: int):
+    """MJPEG generator for people-counter stream with line overlay + bbox."""
+    print(f"[PEOPLE-COUNTER] MJPEG client connected for cam_{cam_id}", flush=True)
+    ctr = get_counter(cam_id)
+    TARGET_FPS = 25
+    frame_interval = 1.0 / TARGET_FPS
+    last_time = 0.0
+
+    while True:
+        try:
+            now = time.time()
+            elapsed = now - last_time
+            if elapsed < frame_interval:
+                time.sleep(frame_interval - elapsed)
+            last_time = time.time()
+
+            cam = camera_manager.get_camera(cam_id)
+            if not cam:
+                # Error frame
+                img = np.zeros((360, 640, 3), dtype=np.uint8)
+                img[:] = (15, 23, 42)
+                cv2.putText(img, f"Camera {cam_id} not found", (80, 180),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (100, 100, 255), 2, cv2.LINE_AA)
+                ok, enc = cv2.imencode('.jpg', img)
+                if ok:
+                    raw = enc.tobytes()
+                    yield (b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: '
+                           + str(len(raw)).encode() + b'\r\n\r\n' + raw + b'\r\n')
+                time.sleep(0.5)
+                continue
+
+            frame = cam.get_frame()
+            if frame is None:
+                time.sleep(0.04)
+                continue
+
+            # Process frame through people counter
+            annotated = ctr.process_frame(frame)
+
+            # Resize for bandwidth
+            h, w = annotated.shape[:2]
+            if w > 800:
+                scale = 800.0 / w
+                annotated = cv2.resize(annotated, (800, int(h * scale)), interpolation=cv2.INTER_LINEAR)
+
+            ok, enc = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 72])
+            if ok:
+                raw = enc.tobytes()
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: '
+                       + str(len(raw)).encode() + b'\r\n\r\n' + raw + b'\r\n')
+
+        except Exception as e:
+            print(f"[PEOPLE-COUNTER] MJPEG error cam_{cam_id}: {e}", flush=True)
+            time.sleep(0.5)
+
+
+@app.get("/api/people-counter/stream/{cam_id}")
+def api_counter_stream(cam_id: int):
+    """MJPEG stream for people counter with IN/OUT line overlay."""
+    return StreamingResponse(
+        _people_counter_mjpeg(cam_id),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "Access-Control-Allow-Origin": "*"
+        }
+    )
 
 
 if __name__ == '__main__':

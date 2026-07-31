@@ -555,6 +555,61 @@ app.use('/api/zones', (req, res) => {
     proxyReq.end();
 });
 
+// ── Proxy /api/people-counter/* → Python AI Service (port 5001) ────────────
+// Handles both streaming responses (SSE, MJPEG) and regular JSON endpoints.
+app.use('/api/people-counter', (req, res) => {
+    let subPath = req.url || '';
+    const targetUrl = `http://127.0.0.1:5001/api/people-counter${subPath}`;
+
+    const payload = (req.method !== 'GET' && req.method !== 'HEAD')
+        ? (typeof req.body === 'object' ? JSON.stringify(req.body) : (req.body || ''))
+        : '';
+
+    const headers = {
+        'host': '127.0.0.1:5001',
+        'content-type': req.headers['content-type'] || 'application/json',
+        'accept': req.headers['accept'] || '*/*'
+    };
+    if (payload) {
+        headers['content-length'] = Buffer.byteLength(payload);
+    }
+
+    const proxyReq = http.request(targetUrl, {
+        method: req.method,
+        headers: headers
+    }, (proxyRes) => {
+        // Pass through all headers (important for SSE & MJPEG content-type)
+        const resHeaders = { ...proxyRes.headers };
+        // Ensure CORS for cross-origin browser access
+        resHeaders['Access-Control-Allow-Origin'] = '*';
+        res.writeHead(proxyRes.statusCode, resHeaders);
+        proxyRes.pipe(res);
+    });
+
+    // No timeout for streaming endpoints (SSE / MJPEG)
+    const isStreaming = subPath.includes('/events') || subPath.includes('/stream/');
+    if (!isStreaming) {
+        proxyReq.setTimeout(10000, () => {
+            proxyReq.destroy();
+            if (!res.headersSent) {
+                res.status(504).json({ success: false, message: 'People Counter AI Timeout' });
+            }
+        });
+    }
+
+    proxyReq.on('error', (err) => {
+        log(`People Counter proxy error: ${err.message}`, 'error');
+        if (!res.headersSent) {
+            res.status(502).json({ success: false, message: 'Gagal terhubung ke AI Service (People Counter)' });
+        }
+    });
+
+    if (payload) {
+        proxyReq.write(payload);
+    }
+    proxyReq.end();
+});
+
 // Resolve YouTube Live stream URL to direct HLS stream
 function resolveYoutubeUrl(youtubeUrl) {
     return new Promise((resolve) => {
@@ -588,6 +643,10 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'templates', 'index.html'));
+});
+
+app.get('/visitor-counting', (req, res) => {
+    res.sendFile(path.join(__dirname, 'templates', 'visitor_counting.html'));
 });
 
 app.get('/api/config', (req, res) => {

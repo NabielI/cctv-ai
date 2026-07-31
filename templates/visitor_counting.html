@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Visitor Counting – NVR Analytics</title>
+<meta name="description" content="Real-time people counting dashboard with configurable IN/OUT line, live MJPEG stream, crossing snapshots, and hourly analytics chart."/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-base:    #0a0f1e;
+    --bg-card:    #111827;
+    --bg-glass:   rgba(17,24,39,0.85);
+    --border:     rgba(255,255,255,0.07);
+    --accent-in:  #22c55e;
+    --accent-out: #ef4444;
+    --accent-uni: #f59e0b;
+    --accent-blue:#3b82f6;
+    --text-pri:   #f1f5f9;
+    --text-sec:   #94a3b8;
+    --text-mute:  #475569;
+    --glow-in:    0 0 20px rgba(34,197,94,.35);
+    --glow-out:   0 0 20px rgba(239,68,68,.35);
+    --radius:     14px;
+    --radius-sm:  8px;
+    --shadow:     0 8px 32px rgba(0,0,0,.5);
+    --transition: .22s cubic-bezier(.4,0,.2,1);
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-base);
+    color: var(--text-pri);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 80% 50% at 20% 10%, rgba(59,130,246,.08) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 80%, rgba(34,197,94,.06) 0%, transparent 60%);
+  }
+
+  /* Header */
+  .header {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 16px; padding: 14px 24px;
+    background: rgba(10,15,30,.9); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .header-logo { display: flex; align-items: center; gap: 10px; font-size: 1.05rem; font-weight: 700; }
+  .header-logo .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent-in); box-shadow: 0 0 8px var(--accent-in);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(1.3)} }
+
+  .header-cam-select {
+    margin-left: auto; padding: 7px 12px; border-radius: var(--radius-sm);
+    background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--text-pri); font-family: inherit; font-size: .85rem;
+    cursor: pointer; outline: none;
+  }
+  .header-cam-select:focus { border-color: var(--accent-blue); }
+
+  /* Layout */
+  .main {
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: 240px 1fr 340px;
+    gap: 16px; padding: 16px;
+    min-height: calc(100vh - 57px);
+  }
+
+  /* Card */
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow);
+  }
+  .card-title {
+    font-size: .7rem; font-weight: 600; letter-spacing: 1.2px;
+    text-transform: uppercase; color: var(--text-sec);
+    margin-bottom: 14px; display: flex; align-items: center; gap: 7px;
+  }
+  .badge {
+    font-size: .62rem; padding: 2px 7px; border-radius: 20px;
+    background: rgba(59,130,246,.15); color: var(--accent-blue);
+    letter-spacing: .5px; font-weight: 600;
+  }
+
+  /* Left panel */
+  .panel-left { display: flex; flex-direction: column; gap: 12px; }
+
+  .counter-box {
+    position: relative; overflow: hidden; border-radius: var(--radius); padding: 20px;
+    display: flex; flex-direction: column; gap: 4px;
+    transition: transform var(--transition), box-shadow var(--transition);
+    cursor: default;
+  }
+  .counter-box:hover { transform: translateY(-2px); }
+  .counter-box.in {
+    background: linear-gradient(135deg, rgba(34,197,94,.12), rgba(16,185,129,.06));
+    border: 1px solid rgba(34,197,94,.25);
+  }
+  .counter-box.in:hover { box-shadow: var(--glow-in); }
+  .counter-box.out {
+    background: linear-gradient(135deg, rgba(239,68,68,.12), rgba(220,38,38,.06));
+    border: 1px solid rgba(239,68,68,.25);
+  }
+  .counter-box.out:hover { box-shadow: var(--glow-out); }
+  .counter-box.uni {
+    background: linear-gradient(135deg, rgba(245,158,11,.1), rgba(217,119,6,.05));
+    border: 1px solid rgba(245,158,11,.2);
+  }
+  .counter-box::after {
+    content:''; position:absolute; right:-20px; top:-20px;
+    width:80px; height:80px; border-radius:50%; opacity:.06;
+  }
+  .counter-box.in::after  { background: var(--accent-in); }
+  .counter-box.out::after { background: var(--accent-out); }
+  .counter-box.uni::after { background: var(--accent-uni); }
+
+  .counter-label { font-size:.72rem; font-weight:600; letter-spacing:1px; text-transform:uppercase; }
+  .counter-label.in  { color: var(--accent-in); }
+  .counter-label.out { color: var(--accent-out); }
+  .counter-label.uni { color: var(--accent-uni); }
+  .counter-value {
+    font-size: 2.8rem; font-weight: 800; line-height:1; letter-spacing:-2px;
+    transition: all .3s cubic-bezier(.34,1.56,.64,1);
+  }
+  .counter-value.in  { color: var(--accent-in); }
+  .counter-value.out { color: var(--accent-out); }
+  .counter-value.uni { color: var(--accent-uni); }
+  .counter-value.bump { transform:scale(1.12); filter:brightness(1.4); }
+  .counter-sub { font-size:.72rem; color:var(--text-mute); margin-top:2px; }
+
+  /* Buttons */
+  .btn {
+    display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    padding:9px 16px; border-radius:var(--radius-sm);
+    font-family:inherit; font-size:.82rem; font-weight:600;
+    cursor:pointer; transition:all var(--transition); border:1px solid transparent; outline:none;
+  }
+  .btn-danger { background:rgba(239,68,68,.12); color:var(--accent-out); border-color:rgba(239,68,68,.3); }
+  .btn-danger:hover { background:rgba(239,68,68,.22); }
+  .btn-ghost { background:rgba(255,255,255,.05); color:var(--text-sec); border-color:var(--border); }
+  .btn-ghost:hover { background:rgba(255,255,255,.1); color:var(--text-pri); }
+  .btn-full { width:100%; }
+
+  /* Hourly table */
+  .hourly-table-wrap { max-height:200px; overflow-y:auto; }
+  .hourly-table-wrap::-webkit-scrollbar { width:4px; }
+  .hourly-table-wrap::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+  table.hourly { width:100%; border-collapse:collapse; font-size:.78rem; }
+  table.hourly th {
+    padding:5px 8px; text-align:left; color:var(--text-mute); font-weight:500;
+    border-bottom:1px solid var(--border); position:sticky; top:0;
+    background:var(--bg-card); z-index:1;
+  }
+  table.hourly td { padding:5px 8px; border-bottom:1px solid rgba(255,255,255,.03); }
+  table.hourly tr:hover td { background:rgba(255,255,255,.03); }
+  .td-in  { color:var(--accent-in);  font-weight:600; }
+  .td-out { color:var(--accent-out); font-weight:600; }
+
+  /* Center panel */
+  .panel-center { display:flex; flex-direction:column; gap:14px; }
+
+  .stream-statusbar {
+    display:flex; align-items:center; gap:10px; padding:8px 14px;
+    background:rgba(10,15,30,.8); backdrop-filter:blur(8px);
+    border:1px solid var(--border); border-radius:var(--radius-sm); font-size:.78rem;
+  }
+  .live-badge {
+    display:flex; align-items:center; gap:5px; padding:3px 10px; border-radius:20px;
+    background:rgba(239,68,68,.15); color:#f87171; font-size:.68rem; font-weight:700; letter-spacing:1px;
+  }
+  .live-dot { width:6px; height:6px; border-radius:50%; background:#ef4444; animation:live-pulse 1.2s ease-in-out infinite; }
+  @keyframes live-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  .stream-container {
+    position:relative; border-radius:var(--radius); overflow:hidden;
+    background:#000; aspect-ratio:16/9;
+    box-shadow:0 0 0 1px var(--border), var(--shadow);
+    flex-shrink:0;
+  }
+  .stream-img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; display:block; }
+  .stream-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:2; }
+  .stream-canvas.interactive { pointer-events:auto; cursor:crosshair; }
+
+  .draw-tip {
+    position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,.75); backdrop-filter:blur(6px);
+    color:var(--text-sec); font-size:.74rem; font-weight:500;
+    padding:6px 14px; border-radius:20px; border:1px solid var(--border);
+    white-space:nowrap; z-index:10; pointer-events:none;
+    opacity:0; transition:opacity var(--transition);
+  }
+  .draw-tip.show { opacity:1; }
+
+  .controls-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .control-toggle {
+    display:flex; align-items:center; gap:7px;
+    padding:8px 14px; border-radius:var(--radius-sm);
+    background:var(--bg-card); border:1px solid var(--border);
+    font-family:inherit; font-size:.8rem; font-weight:500; color:var(--text-sec);
+    cursor:pointer; transition:all var(--transition); user-select:none;
+  }
+  .control-toggle.active { background:rgba(59,130,246,.15); border-color:rgba(59,130,246,.4); color:var(--accent-blue); }
+
+  /* Right panel */
+  .panel-right { display:flex; flex-direction:column; gap:14px; }
+  .chart-wrap { position:relative; height:180px; }
+
+  .snap-gallery {
+    flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px;
+    max-height: 450px; padding-right:2px;
+  }
+  .snap-gallery::-webkit-scrollbar { width:4px; }
+  .snap-gallery::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+
+  .snap-item {
+    display:flex; gap:10px; align-items:flex-start;
+    padding:10px; border-radius:var(--radius-sm);
+    background:rgba(255,255,255,.03); border:1px solid var(--border);
+    transition:all var(--transition);
+    animation:snap-enter .35s cubic-bezier(.34,1.56,.64,1) both;
+  }
+  @keyframes snap-enter { from{opacity:0;transform:translateX(20px) scale(.96)} to{opacity:1;transform:none} }
+  .snap-item:hover { background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.14); }
+  .snap-item.in  { border-left:3px solid var(--accent-in); }
+  .snap-item.out { border-left:3px solid var(--accent-out); }
+
+  .snap-thumb {
+    width:70px; height:50px; object-fit:cover;
+    border-radius:6px; flex-shrink:0; background:var(--bg-base); cursor:pointer;
+  }
+  .snap-info { flex:1; min-width:0; }
+  .snap-badges { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-bottom:3px; }
+  .snap-badge {
+    font-size:.62rem; font-weight:700; letter-spacing:.8px;
+    padding:2px 8px; border-radius:10px; text-transform:uppercase;
+  }
+  .snap-badge.in  { background:rgba(34,197,94,.2);   color:var(--accent-in); }
+  .snap-badge.out { background:rgba(239,68,68,.2);    color:var(--accent-out); }
+  .snap-badge.track  { background:rgba(59,130,246,.15); color:#93c5fd; }
+  .snap-badge.repeat { background:rgba(245,158,11,.15); color:var(--accent-uni); }
+  .snap-ts   { font-size:.68rem; color:var(--text-mute); }
+  .snap-bolak{ font-size:.72rem; color:var(--text-sec); margin-top:2px; }
+  .snap-empty{ text-align:center; color:var(--text-mute); font-size:.82rem; padding:40px 20px; line-height:1.7; }
+
+  /* Lightbox */
+  .lightbox {
+    position:fixed; inset:0; z-index:1000; display:none;
+    align-items:center; justify-content:center;
+    background:rgba(0,0,0,.85); backdrop-filter:blur(6px);
+  }
+  .lightbox.show { display:flex; }
+  .lightbox img { max-width:90vw; max-height:85vh; border-radius:var(--radius); }
+  .lightbox-close {
+    position:absolute; top:20px; right:24px;
+    background:none; border:none; color:#fff; font-size:2rem; cursor:pointer; opacity:.7;
+  }
+  .lightbox-close:hover { opacity:1; }
+
+  /* Toast */
+  .toast-container { position:fixed; bottom:24px; right:24px; z-index:200; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+  .toast {
+    padding:10px 18px; border-radius:var(--radius-sm);
+    font-size:.82rem; font-weight:600; backdrop-filter:blur(8px); border:1px solid;
+    animation:toast-in .3s ease;
+  }
+  .toast.in   { background:rgba(34,197,94,.15);  border-color:rgba(34,197,94,.4);  color:var(--accent-in); }
+  .toast.out  { background:rgba(239,68,68,.15);   border-color:rgba(239,68,68,.4);  color:var(--accent-out); }
+  .toast.info { background:rgba(59,130,246,.15);  border-color:rgba(59,130,246,.4); color:#93c5fd; }
+  @keyframes toast-in { from{opacity:0;transform:translateY(16px) scale(.95)} to{opacity:1;transform:none} }
+
+  /* SSE indicator */
+  .sse-indicator { display:flex; align-items:center; gap:5px; font-size:.7rem; color:var(--text-mute); }
+  .sse-dot { width:7px; height:7px; border-radius:50%; background:var(--text-mute); transition:background .4s; }
+  .sse-dot.connected    { background:var(--accent-in); box-shadow:0 0 6px var(--accent-in); }
+  .sse-dot.disconnected { background:var(--accent-out); }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-logo">
+    <div class="dot"></div>
+    <span>NVR Analytics</span>
+    <span style="color:var(--text-mute);font-weight:400;font-size:.85rem"> &nbsp;/&nbsp; Visitor Counting</span>
+  </div>
+  <div class="sse-indicator">
+    <div class="sse-dot" id="sseDot"></div>
+    <span id="sseStatus">Menghubungkan…</span>
+  </div>
+  <select class="header-cam-select" id="camSelect" onchange="onCameraChange()">
+    <option value="">Memuat kamera…</option>
+  </select>
+</header>
+
+<div class="main">
+
+  <!-- LEFT -->
+  <div class="panel-left">
+    <div class="counter-box in">
+      <div class="counter-label in">&#9650; Masuk (IN)</div>
+      <div class="counter-value in" id="cntIn">0</div>
+      <div class="counter-sub">Total kumulatif, tidak berkurang</div>
+    </div>
+    <div class="counter-box out">
+      <div class="counter-label out">&#9660; Keluar (OUT)</div>
+      <div class="counter-value out" id="cntOut">0</div>
+      <div class="counter-sub">Total kumulatif, tidak berkurang</div>
+    </div>
+    <div class="counter-box uni">
+      <div class="counter-label uni">&#9711; Unik Terdeteksi</div>
+      <div class="counter-value uni" id="cntUni">0</div>
+      <div class="counter-sub">Total track ID unik yang pernah crossing</div>
+    </div>
+
+    <button class="btn btn-danger btn-full" onclick="resetCounter()">&#8635; Reset Counter (Sesi)</button>
+
+    <div class="card" style="flex:1;min-height:0;padding:14px;">
+      <div class="card-title">Per Jam Hari Ini <span class="badge" id="dateLabel">–</span></div>
+      <div class="hourly-table-wrap">
+        <table class="hourly">
+          <thead><tr><th>Jam</th><th class="td-in">IN</th><th class="td-out">OUT</th></tr></thead>
+          <tbody id="hourlyBody">
+            <tr><td colspan="3" style="color:var(--text-mute);padding:20px 8px;text-align:center">Belum ada data</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER -->
+  <div class="panel-center">
+    <div class="stream-statusbar">
+      <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+      <span style="color:var(--text-sec);font-size:.8rem" id="streamLabel">Memuat…</span>
+      <span style="color:var(--text-mute);font-size:.75rem;margin-left:auto">MJPEG Real-time</span>
+    </div>
+
+    <div class="stream-container" id="streamContainer">
+      <img class="stream-img" id="streamImg" alt="Live Feed"/>
+      <canvas class="stream-canvas" id="overlayCanvas"></canvas>
+      <div class="draw-tip" id="drawTip">Klik &amp; seret untuk menggambar garis IN/OUT</div>
+    </div>
+
+    <div class="controls-row">
+      <button class="control-toggle" id="btnDraw" onclick="toggleDrawMode()">
+        &#9998; Atur Garis IN/OUT
+      </button>
+      <button class="btn btn-ghost" onclick="clearLine()">&#10005; Hapus Garis</button>
+      <button class="btn btn-ghost" onclick="refreshAll()">&#8635; Refresh</button>
+      <span style="color:var(--text-mute);font-size:.75rem;margin-left:auto" id="lineInfo">Belum ada garis</span>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="panel-right">
+    <div class="card">
+      <div class="card-title">Grafik Per Jam <span class="badge">Hari Ini</span></div>
+      <div class="chart-wrap"><canvas id="hourlyChart"></canvas></div>
+    </div>
+
+    <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0;padding:14px;">
+      <div class="card-title" style="margin-bottom:10px;">
+        Snapshot Crossing
+        <span class="badge" id="snapCount">0</span>
+      </div>
+      <div class="snap-gallery" id="snapGallery">
+        <div class="snap-empty">Belum ada crossing.<br/>Atur garis IN/OUT lalu tunggu deteksi orang.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">&#10005;</button>
+  <img id="lightboxImg" src="" alt="Snapshot"/>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+'use strict';
+
+const BASE = '';
+let camId = 0;
+let sseSource = null;
+let drawMode = false;
+let drawStart = null;
+let isDragging = false;
+let currentLine = null;
+let hourlyChart = null;
+let snapItems = [];
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+async function boot() {
+  document.getElementById('dateLabel').textContent =
+    new Date().toLocaleDateString('id-ID', { day:'2-digit', month:'long', year:'numeric' });
+
+  await loadCameras();
+  camId = parseInt(document.getElementById('camSelect').value) || 0;
+  initStream();
+  initCanvas();
+  initChart();
+  await loadLine();
+  await loadStatus();
+  await loadSnapshots();
+  await loadHourly();
+  connectSSE();
+
+  setInterval(loadHourly, 60_000);
+  setInterval(() => { loadSnapshots(); loadStatus(); }, 10_000);
+}
+
+// ── Cameras ───────────────────────────────────────────────────────────────────
+async function loadCameras() {
+  try {
+    const r = await fetch('/api/config');
+    const cfg = await r.json();
+    const sel = document.getElementById('camSelect');
+    sel.innerHTML = '';
+    (cfg.cameras || []).forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = `Kamera ${c.id} – ${c.name}`;
+      sel.appendChild(o);
+    });
+  } catch(e) { console.warn('[VC] loadCameras:', e); }
+}
+
+function onCameraChange() {
+  const newId = parseInt(document.getElementById('camSelect').value) || 0;
+  if (newId === camId) return;
+  camId = newId;
+  if (sseSource) { sseSource.close(); sseSource = null; }
+  snapItems = []; renderSnaps();
+  initStream(); loadLine(); loadStatus(); loadSnapshots(); loadHourly(); connectSSE();
+  toast(`Beralih ke Kamera ${camId}`, 'info');
+}
+
+// ── Stream ────────────────────────────────────────────────────────────────────
+function initStream() {
+  const img = document.getElementById('streamImg');
+  img.src = `${BASE}/api/people-counter/stream/${camId}?t=${Date.now()}`;
+  document.getElementById('streamLabel').textContent = `Kamera ${camId} – People Counter`;
+}
+
+function refreshAll() {
+  initStream();
+  loadStatus();
+  loadSnapshots();
+  loadHourly();
+  toast('Refreshed', 'info');
+}
+
+// ── Canvas ────────────────────────────────────────────────────────────────────
+function initCanvas() {
+  const canvas = document.getElementById('overlayCanvas');
+  const container = document.getElementById('streamContainer');
+
+  canvas.addEventListener('mousedown',  onMD);
+  canvas.addEventListener('mousemove',  onMM);
+  canvas.addEventListener('mouseup',    onMU);
+  canvas.addEventListener('touchstart', onTS, { passive: false });
+  canvas.addEventListener('touchmove',  onTM, { passive: false });
+  canvas.addEventListener('touchend',   onTE);
+
+  new ResizeObserver(() => resizeCanvas()).observe(container);
+  resizeCanvas();
+}
+
+function resizeCanvas() {
+  const canvas = document.getElementById('overlayCanvas');
+  const c = document.getElementById('streamContainer');
+  canvas.width = c.clientWidth; canvas.height = c.clientHeight;
+  drawOverlay();
+}
+
+function toggleDrawMode() {
+  drawMode = !drawMode;
+  const btn = document.getElementById('btnDraw');
+  const canvas = document.getElementById('overlayCanvas');
+  const tip = document.getElementById('drawTip');
+  btn.classList.toggle('active', drawMode);
+  canvas.classList.toggle('interactive', drawMode);
+  tip.classList.toggle('show', drawMode);
+  if (drawMode) toast('Mode gambar aktif – klik & seret untuk membuat garis IN/OUT', 'info');
+}
+
+function norm(ex, ey) {
+  const c = document.getElementById('overlayCanvas');
+  const r = c.getBoundingClientRect();
+  return { x: Math.max(0,Math.min(1,(ex-r.left)/r.width)), y: Math.max(0,Math.min(1,(ey-r.top)/r.height)) };
+}
+
+function onMD(e) { if(!drawMode)return; e.preventDefault(); drawStart=norm(e.clientX,e.clientY); isDragging=true; }
+function onMM(e) { if(!drawMode||!isDragging)return; e.preventDefault(); preview(drawStart, norm(e.clientX,e.clientY)); }
+function onMU(e) { if(!drawMode||!isDragging)return; e.preventDefault(); const p=norm(e.clientX,e.clientY); isDragging=false; if(dist(drawStart,p)>0.02) submitLine(drawStart.x,drawStart.y,p.x,p.y); drawStart=null; }
+function onTS(e) { if(!drawMode)return; e.preventDefault(); const t=e.touches[0]; drawStart=norm(t.clientX,t.clientY); isDragging=true; }
+function onTM(e) { if(!drawMode||!isDragging)return; e.preventDefault(); const t=e.touches[0]; preview(drawStart,norm(t.clientX,t.clientY)); }
+function onTE(e) { if(!drawMode||!isDragging)return; e.preventDefault(); const t=e.changedTouches[0]; const p=norm(t.clientX,t.clientY); isDragging=false; if(dist(drawStart,p)>0.02) submitLine(drawStart.x,drawStart.y,p.x,p.y); drawStart=null; }
+
+function dist(a,b){ return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2); }
+
+function preview(s, e) {
+  const canvas = document.getElementById('overlayCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const x1=s.x*canvas.width, y1=s.y*canvas.height, x2=e.x*canvas.width, y2=e.y*canvas.height;
+  ctx.save();
+  ctx.setLineDash([8,4]); ctx.strokeStyle='rgba(255,200,0,.8)'; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle='#ffc800';
+  ctx.beginPath(); ctx.arc(x1,y1,5,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x2,y2,5,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawOverlay() {
+  const canvas = document.getElementById('overlayCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if (!currentLine) return;
+
+  const {x1,y1,x2,y2} = currentLine;
+  const lx1=x1*canvas.width, ly1=y1*canvas.height;
+  const lx2=x2*canvas.width, ly2=y2*canvas.height;
+
+  ctx.save();
+  ctx.shadowColor='#ffc800'; ctx.shadowBlur=12;
+  ctx.strokeStyle='#ffc800'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(lx1,ly1); ctx.lineTo(lx2,ly2); ctx.stroke();
+  ctx.shadowBlur=0;
+
+  ctx.fillStyle='#ffc800';
+  ctx.beginPath(); ctx.arc(lx1,ly1,6,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(lx2,ly2,6,0,Math.PI*2); ctx.fill();
+
+  const mx=(lx1+lx2)/2, my=(ly1+ly2)/2;
+  const dx=lx2-lx1, dy=ly2-ly1, len=Math.sqrt(dx*dx+dy*dy)||1;
+  const nx=-dy/len, ny=dx/len, ARR=36;
+
+  // IN arrow
+  drawArrow(ctx, mx, my, mx+nx*ARR, my+ny*ARR, '#22c55e');
+  ctx.font='bold 13px Inter,sans-serif'; ctx.fillStyle='#22c55e';
+  ctx.fillText('IN', mx+nx*(ARR+10)-6, my+ny*(ARR+10)+4);
+
+  // OUT arrow
+  drawArrow(ctx, mx, my, mx-nx*ARR, my-ny*ARR, '#ef4444');
+  ctx.fillStyle='#ef4444';
+  ctx.fillText('OUT', mx-nx*(ARR+10)-14, my-ny*(ARR+10)+4);
+
+  ctx.restore();
+}
+
+function drawArrow(ctx, x1, y1, x2, y2, color) {
+  const dx=x2-x1, dy=y2-y1, ang=Math.atan2(dy,dx), h=10;
+  ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-h*Math.cos(ang-Math.PI/6), y2-h*Math.sin(ang-Math.PI/6));
+  ctx.lineTo(x2-h*Math.cos(ang+Math.PI/6), y2-h*Math.sin(ang+Math.PI/6));
+  ctx.closePath(); ctx.fill();
+}
+
+async function submitLine(x1,y1,x2,y2) {
+  try {
+    const r = await fetch(`${BASE}/api/people-counter/${camId}/line`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({x1,y1,x2,y2})
+    });
+    const d = await r.json();
+    if (d.success) {
+      currentLine={x1,y1,x2,y2}; drawOverlay(); updateLineInfo();
+      if (drawMode) toggleDrawMode();
+      toast('Garis IN/OUT berhasil diset!', 'info');
+    }
+  } catch(e) { console.error('[VC] submitLine:', e); }
+}
+
+async function clearLine() {
+  currentLine = null; drawOverlay();
+  document.getElementById('lineInfo').textContent = 'Belum ada garis';
+}
+
+function updateLineInfo() {
+  if (!currentLine) { document.getElementById('lineInfo').textContent='Belum ada garis'; return; }
+  const {x1,y1,x2,y2}=currentLine;
+  document.getElementById('lineInfo').textContent =
+    `Garis: (${(x1*100).toFixed(0)}%,${(y1*100).toFixed(0)}%) → (${(x2*100).toFixed(0)}%,${(y2*100).toFixed(0)}%)`;
+}
+
+async function loadLine() {
+  try {
+    const r = await fetch(`${BASE}/api/people-counter/${camId}/line`);
+    const d = await r.json();
+    if (d.success && d.line) { currentLine=d.line; drawOverlay(); updateLineInfo(); }
+  } catch(e){}
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const r = await fetch(`${BASE}/api/people-counter/${camId}/status`);
+    const d = await r.json();
+    if (d.success) applyStatus(d.data);
+  } catch(e){}
+}
+
+function applyStatus(data) {
+  setCounter('In',  data.in_count || 0);
+  setCounter('Out', data.out_count || 0);
+  setCounter('Uni', data.unique_persons || 0);
+  if (data.line) { currentLine=data.line; drawOverlay(); updateLineInfo(); }
+}
+
+function setCounter(key, val) {
+  const el = document.getElementById(`cnt${key}`);
+  if (!el) return;
+  const old = parseInt(el.textContent) || 0;
+  if (val !== old) {
+    el.textContent = val;
+    el.classList.add('bump');
+    setTimeout(()=>el.classList.remove('bump'), 400);
+  }
+}
+
+async function resetCounter() {
+  if (!confirm(`Reset counter sesi kamera ${camId}? (History DB tetap tersimpan)`)) return;
+  try {
+    const r = await fetch(`${BASE}/api/people-counter/${camId}/reset`, {method:'POST'});
+    const d = await r.json();
+    if (d.success) { setCounter('In',0); setCounter('Out',0); toast('Counter sesi direset','info'); }
+  } catch(e){}
+}
+
+// ── SSE ───────────────────────────────────────────────────────────────────────
+function connectSSE() {
+  if (sseSource){ sseSource.close(); sseSource=null; }
+  const dot=document.getElementById('sseDot'), status=document.getElementById('sseStatus');
+  try {
+    sseSource = new EventSource(`${BASE}/api/people-counter/${camId}/events`);
+    sseSource.onopen = () => { dot.className='sse-dot connected'; status.textContent='Terhubung – Real-time'; };
+    sseSource.onmessage = (e) => { try{ handleSSE(JSON.parse(e.data)); }catch(_){} };
+    sseSource.onerror = () => { dot.className='sse-dot disconnected'; status.textContent='Terputus – reconnecting…'; };
+  } catch(e) {
+    console.warn('[VC] SSE fallback to polling');
+    setInterval(()=>{ loadStatus(); loadSnapshots(); }, 2000);
+  }
+}
+
+function handleSSE(ev) {
+  if (ev.in_count  !== undefined) setCounter('In',  ev.in_count);
+  if (ev.out_count !== undefined) setCounter('Out', ev.out_count);
+  if (ev.unique_persons !== undefined) setCounter('Uni', ev.unique_persons);
+
+  if (ev.type === 'crossing') {
+    const dir=ev.direction;
+    toast(
+      dir==='in'
+        ? `▲ MASUK – ID:${ev.track_id} (x${ev.crossing_count} kali crossing)`
+        : `▼ KELUAR – ID:${ev.track_id} (x${ev.crossing_count} kali crossing)`,
+      dir
+    );
+    if (ev.snapshot_path) {
+      prependSnap({
+        track_id: ev.track_id, direction: dir, timestamp: ev.timestamp,
+        snapshot_path: ev.snapshot_path, crossing_count: ev.crossing_count,
+        total_crossings: ev.crossing_count, total_in: 0, total_out: 0
+      });
+    }
+    loadHourly();
+  }
+}
+
+// ── Snapshots ─────────────────────────────────────────────────────────────────
+async function loadSnapshots() {
+  try {
+    const r = await fetch(`${BASE}/api/people-counter/${camId}/snapshots?limit=60`);
+    const d = await r.json();
+    if (d.success){ snapItems=d.data||[]; renderSnaps(); }
+  } catch(e){}
+}
+
+function prependSnap(snap) {
+  snapItems.unshift(snap);
+  if (snapItems.length>120) snapItems.pop();
+  renderSnaps();
+}
+
+function renderSnaps() {
+  const gallery = document.getElementById('snapGallery');
+  document.getElementById('snapCount').textContent = snapItems.length;
+  if (!snapItems.length) {
+    gallery.innerHTML='<div class="snap-empty">Belum ada crossing.<br/>Atur garis IN/OUT lalu tunggu deteksi orang.</div>';
+    return;
+  }
+  gallery.innerHTML = '';
+  snapItems.forEach((snap, i) => {
+    const dir = snap.direction;
+    const ts  = fmtTs(snap.timestamp);
+    const totalX  = snap.total_crossings || snap.crossing_count || 1;
+    const inCnt   = snap.total_in  || 0;
+    const outCnt  = snap.total_out || 0;
+    const item = document.createElement('div');
+    item.className = `snap-item ${dir}`;
+    item.style.animationDelay = `${Math.min(i,10)*0.04}s`;
+    item.innerHTML = `
+      <img class="snap-thumb"
+        src="${BASE}${snap.snapshot_path}" alt="${dir}"
+        onclick="openLightbox('${BASE}${snap.snapshot_path}')"
+        onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2270%22 height=%2250%22><rect fill=%22%23111827%22 width=%2270%22 height=%2250%22/><text fill=%22%23475569%22 x=%2235%22 y=%2230%22 text-anchor=%22middle%22 font-size=%2210%22>No img</text></svg>'"/>
+      <div class="snap-info">
+        <div class="snap-badges">
+          <span class="snap-badge ${dir}">${dir==='in'?'▲ MASUK':'▼ KELUAR'}</span>
+          <span class="snap-badge track">ID:${snap.track_id}</span>
+          ${totalX>1?`<span class="snap-badge repeat">x${totalX} crossing</span>`:''}
+        </div>
+        <div class="snap-ts">${ts}</div>
+        ${totalX>1?`<div class="snap-bolak">Track ini: ${inCnt}× masuk, ${outCnt}× keluar</div>`:''}
+      </div>`;
+    gallery.appendChild(item);
+  });
+}
+
+function fmtTs(s) {
+  if (!s) return '–';
+  try { return new Date(s).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+  catch{ return s; }
+}
+
+// ── Chart ─────────────────────────────────────────────────────────────────────
+function initChart() {
+  const ctx = document.getElementById('hourlyChart').getContext('2d');
+  hourlyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: [],
+      datasets: [
+        { label:'IN',  data:[], backgroundColor:'rgba(34,197,94,.7)',  borderColor:'#22c55e', borderWidth:1.5, borderRadius:4, borderSkipped:false },
+        { label:'OUT', data:[], backgroundColor:'rgba(239,68,68,.65)', borderColor:'#ef4444', borderWidth:1.5, borderRadius:4, borderSkipped:false }
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      animation:{ duration:400, easing:'easeOutQuart' },
+      plugins: {
+        legend:{ labels:{ color:'#94a3b8', boxWidth:12, font:{size:11} } },
+        tooltip:{
+          backgroundColor:'rgba(17,24,39,.95)', borderColor:'rgba(255,255,255,.1)', borderWidth:1,
+          titleColor:'#f1f5f9', bodyColor:'#94a3b8'
+        }
+      },
+      scales: {
+        x:{ grid:{color:'rgba(255,255,255,.04)'}, ticks:{color:'#64748b',font:{size:10},maxRotation:0} },
+        y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.04)'}, ticks:{color:'#64748b',font:{size:10},precision:0} }
+      }
+    }
+  });
+}
+
+async function loadHourly() {
+  try {
+    const r = await fetch(`${BASE}/api/people-counter/${camId}/hourly`);
+    const d = await r.json();
+    if (!d.success) return;
+    const rows = d.data || [];
+    const map = {};
+    rows.forEach(row => { const h=row.hour.split(' ')[1].split(':')[0]; map[h]=row; });
+    const labels=[], inData=[], outData=[];
+    for (let h=0; h<24; h++) {
+      const k=String(h).padStart(2,'0');
+      labels.push(`${k}:00`);
+      const row=map[k]||{in_count:0,out_count:0};
+      inData.push(row.in_count); outData.push(row.out_count);
+    }
+    // Trim trailing zeros
+    let lastNZ=0;
+    for (let i=23;i>=0;i--){ if(inData[i]>0||outData[i]>0){lastNZ=i;break;} }
+    const trim=Math.min(lastNZ+2,23);
+    hourlyChart.data.labels=labels.slice(0,trim+1);
+    hourlyChart.data.datasets[0].data=inData.slice(0,trim+1);
+    hourlyChart.data.datasets[1].data=outData.slice(0,trim+1);
+    hourlyChart.update('none');
+    updateHourlyTable(rows);
+  } catch(e){}
+}
+
+function updateHourlyTable(rows) {
+  const tbody = document.getElementById('hourlyBody');
+  if (!rows||!rows.length) {
+    tbody.innerHTML='<tr><td colspan="3" style="color:var(--text-mute);padding:20px 8px;text-align:center">Belum ada data</td></tr>';
+    return;
+  }
+  tbody.innerHTML='';
+  [...rows].reverse().forEach(row => {
+    const h=(row.hour.split(' ')[1]||row.hour);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${h}</td><td class="td-in">${row.in_count}</td><td class="td-out">${row.out_count}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+function openLightbox(src) { document.getElementById('lightboxImg').src=src; document.getElementById('lightbox').classList.add('show'); }
+function closeLightbox() { document.getElementById('lightbox').classList.remove('show'); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeLightbox(); });
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function toast(msg, type='info') {
+  const el=document.createElement('div');
+  el.className=`toast ${type}`; el.textContent=msg;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .4s'; }, 2800);
+  setTimeout(()=>el.remove(), 3300);
+}
+
+window.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
