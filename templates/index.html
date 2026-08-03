@@ -2191,7 +2191,7 @@ code, pre, .mono, .font-mono,
     <button class="nav-item" id="nav-zone-monitor" onclick="switchTab('zone-monitor')">
       <i data-lucide="map-pin"></i> Zone Monitor
     </button>
-    <button class="nav-item" id="nav-visitor-counting" onclick="window.open('/visitor-counting','_blank')" style="position:relative">
+    <button class="nav-item" id="nav-visitor-counting" onclick="switchTab('visitor-counting')" style="position:relative">
       <i data-lucide="users"></i> Visitor Counting
       <span style="margin-left:auto;font-size:9px;font-weight:700;background:#0057FF;color:#fff;padding:1px 6px;border-radius:10px;letter-spacing:.5px">NEW</span>
     </button>
@@ -2592,6 +2592,111 @@ code, pre, .mono, .font-mono,
       </div>
     </div>
 
+    <!-- ── Visitor Counting Tab ─────────────────────────────── -->
+    <div class="tab-pane" id="tab-visitor-counting">
+      <div style="padding:20px;height:calc(100vh - 96px);display:flex;flex-direction:column;gap:14px;overflow:hidden;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+          <div>
+            <div style="font-size:18px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;">
+              <i data-lucide="users" style="color:var(--accent);width:20px;height:20px;"></i>
+              Visitor Counting
+            </div>
+            <div style="font-size:12px;color:var(--text-3);margin-top:3px;">Hitung orang masuk &amp; keluar via garis IN/OUT — real-time, snapshot, grafik per jam</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="vc-cam-select" class="form-select" style="width:200px;font-size:12px;" onchange="vcCameraChange()"></select>
+            <span id="vc-sse-dot" style="width:8px;height:8px;border-radius:50%;background:#d1d5db;display:inline-block;transition:background .4s;"></span>
+            <span id="vc-sse-status" style="font-size:11px;color:var(--text-3);">Menghubungkan…</span>
+          </div>
+        </div>
+
+        <!-- Main Grid -->
+        <div style="display:grid;grid-template-columns:200px 1fr 300px;gap:14px;flex:1;min-height:0;">
+
+          <!-- LEFT: Counters -->
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <!-- IN -->
+            <div id="vc-box-in" style="background:linear-gradient(135deg,rgba(16,185,129,.08),rgba(16,185,129,.03));border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:16px;transition:box-shadow .2s;">
+              <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--green);">&#9650; MASUK (IN)</div>
+              <div id="vc-cnt-in" style="font-size:2.6rem;font-weight:800;color:var(--green);line-height:1;letter-spacing:-2px;transition:transform .3s;">0</div>
+              <div style="font-size:11px;color:var(--text-3);">Kumulatif, tidak berkurang</div>
+            </div>
+            <!-- OUT -->
+            <div id="vc-box-out" style="background:linear-gradient(135deg,rgba(239,68,68,.08),rgba(239,68,68,.03));border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:16px;">
+              <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--red);">&#9660; KELUAR (OUT)</div>
+              <div id="vc-cnt-out" style="font-size:2.6rem;font-weight:800;color:var(--red);line-height:1;letter-spacing:-2px;transition:transform .3s;">0</div>
+              <div style="font-size:11px;color:var(--text-3);">Kumulatif, tidak berkurang</div>
+            </div>
+            <!-- UNIQUE -->
+            <div style="background:linear-gradient(135deg,rgba(245,158,11,.08),rgba(245,158,11,.03));border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:16px;">
+              <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--amber);">&#9711; UNIK TERDETEKSI</div>
+              <div id="vc-cnt-uni" style="font-size:2.6rem;font-weight:800;color:var(--amber);line-height:1;letter-spacing:-2px;transition:transform .3s;">0</div>
+              <div style="font-size:11px;color:var(--text-3);">Track ID unik yang crossing</div>
+            </div>
+            <button class="btn" onclick="vcReset()" style="color:var(--red);border-color:rgba(239,68,68,.3);font-size:12px;">&#8635; Reset Counter Sesi</button>
+            <!-- Hourly table -->
+            <div style="flex:1;min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:8px;">
+              <div style="background:var(--surface-2);border-bottom:1px solid var(--border);padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-3);">Per Jam Hari Ini</div>
+              <div style="overflow-y:auto;max-height:160px;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                  <thead><tr style="background:var(--surface-2);position:sticky;top:0;">
+                    <th style="padding:5px 8px;text-align:left;color:var(--text-3);font-weight:500;">Jam</th>
+                    <th style="padding:5px 8px;text-align:left;color:var(--green);font-weight:600;">IN</th>
+                    <th style="padding:5px 8px;text-align:left;color:var(--red);font-weight:600;">OUT</th>
+                  </tr></thead>
+                  <tbody id="vc-hourly-tbody"><tr><td colspan="3" style="padding:12px 8px;text-align:center;color:var(--text-3);">–</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- CENTER: Stream + Canvas -->
+          <div style="display:flex;flex-direction:column;gap:10px;min-height:0;">
+            <!-- Status bar -->
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:12px;flex-shrink:0;">
+              <span style="display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;background:rgba(239,68,68,.1);color:var(--red);font-size:10px;font-weight:700;letter-spacing:.8px;">
+                <span style="width:5px;height:5px;border-radius:50%;background:var(--red);animation:vc-live-pulse 1.2s infinite;"></span>LIVE
+              </span>
+              <span id="vc-stream-label" style="color:var(--text-2);">Memuat…</span>
+              <span style="margin-left:auto;color:var(--text-3);">MJPEG Real-time</span>
+            </div>
+            <!-- Video + canvas overlay -->
+            <div id="vc-stream-container" style="position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:16/9;flex-shrink:0;border:1px solid var(--border);cursor:default;">
+              <img id="vc-stream-img" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;" alt="Live"/>
+              <canvas id="vc-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2;"></canvas>
+              <div id="vc-draw-tip" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.7);color:#94a3b8;font-size:11px;padding:4px 12px;border-radius:20px;white-space:nowrap;opacity:0;transition:opacity .2s;z-index:3;pointer-events:none;">Klik &amp; seret untuk menggambar garis IN/OUT</div>
+            </div>
+            <!-- Controls -->
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+              <button id="vc-btn-draw" class="btn" onclick="vcToggleDraw()" style="font-size:12px;">&#9998; Atur Garis IN/OUT</button>
+              <button class="btn" onclick="vcClearLine()" style="font-size:12px;">&#10005; Hapus Garis</button>
+              <button class="btn" onclick="vcRefresh()" style="font-size:12px;">&#8635; Refresh</button>
+              <span id="vc-line-info" style="margin-left:auto;font-size:11px;color:var(--text-3);">Belum ada garis</span>
+            </div>
+          </div>
+
+          <!-- RIGHT: Chart + Snapshots -->
+          <div style="display:flex;flex-direction:column;gap:10px;min-height:0;">
+            <!-- Chart -->
+            <div class="console-card" style="padding:14px;flex-shrink:0;">
+              <div style="font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-3);margin-bottom:10px;">Grafik Per Jam</div>
+              <div style="position:relative;height:150px;"><canvas id="vc-chart"></canvas></div>
+            </div>
+            <!-- Snapshots -->
+            <div class="console-card" style="flex:1;display:flex;flex-direction:column;min-height:0;padding:14px;">
+              <div style="font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-3);margin-bottom:10px;display:flex;align-items:center;gap:6px;">Snapshot Crossing <span id="vc-snap-count" style="background:var(--accent-light);color:var(--accent);padding:1px 7px;border-radius:10px;">0</span></div>
+              <div id="vc-snap-gallery" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
+                <div style="text-align:center;color:var(--text-3);font-size:12px;padding:30px 10px;line-height:1.7;">Belum ada crossing.<br/>Atur garis IN/OUT lalu tunggu deteksi orang.</div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /grid -->
+      </div>
+    </div><!-- /tab-visitor-counting -->
+
     <!-- ── Drowsiness Tab ────────────────────────────────────── -->
     <div class="tab-pane" id="tab-drowsiness">
       <div class="console-card" style="height:calc(100vh - 96px);">
@@ -2873,15 +2978,15 @@ function toast(msg,type='info'){
 // ═══════════════════════════════════════════════════════════════
 //  TAB SWITCH
 // ═══════════════════════════════════════════════════════════════
-const TAB_TITLES={dashboard:'NVR Monitor Dashboard',logs:'System Diagnostics Console',drowsiness:'Riwayat Deteksi Kantuk (EAR)','zone-monitor':'Multi-Area Zone Monitoring'};
-const TAB_SUBS={dashboard:'Live surveillance dashboard',logs:'Real-time log explorer & diagnostic console',drowsiness:'Eye Aspect Ratio operator tracking history','zone-monitor':'Pantau kehadiran orang per zona — notifikasi Telegram otomatis'};
+const TAB_TITLES={dashboard:'NVR Monitor Dashboard',logs:'System Diagnostics Console',drowsiness:'Riwayat Deteksi Kantuk (EAR)','zone-monitor':'Multi-Area Zone Monitoring','visitor-counting':'Visitor Counting — People Counter'};
+const TAB_SUBS={dashboard:'Live surveillance dashboard',logs:'Real-time log explorer & diagnostic console',drowsiness:'Eye Aspect Ratio operator tracking history','zone-monitor':'Pantau kehadiran orang per zona — notifikasi Telegram otomatis','visitor-counting':'Hitung orang masuk & keluar via garis IN/OUT — real-time SSE, snapshot, grafik per jam'};
 function switchTab(name){
   activeTab=name;
   document.querySelectorAll('.tab-pane').forEach(el=>el.classList.remove('active'));
   const targetPane = document.getElementById(`tab-${name}`);
   if(targetPane) targetPane.classList.add('active');
 
-  ['dashboard','logs','drowsiness','zone-monitor'].forEach(t=>{
+  ['dashboard','logs','drowsiness','zone-monitor','visitor-counting'].forEach(t=>{
     const navBtn = document.getElementById(`nav-${t}`);
     if(navBtn) navBtn.classList.toggle('active',t===name);
   });
@@ -2899,6 +3004,8 @@ function switchTab(name){
     fetchZoneStatus();
     fetchZoneHistory();
     zoneStatusInterval=setInterval(fetchZoneStatus,8000);
+  }else if(name==='visitor-counting'){
+    vcInit();
   }
 }
 
@@ -4898,5 +5005,327 @@ window.addEventListener('DOMContentLoaded',()=>{
   startAIPolling();
 });
 </script>
+
+<style>
+@keyframes vc-live-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+</style>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  VISITOR COUNTING MODULE
+// ═══════════════════════════════════════════════════════════════
+'use strict';
+(function(){
+  let vcCamId = 0;
+  let vcSse = null;
+  let vcDraw = false;
+  let vcDrawStart = null;
+  let vcIsDragging = false;
+  let vcLine = null;
+  let vcChart = null;
+  let vcSnaps = [];
+  let vcPollTimer = null;
+  let vcInitDone = false;
+
+  // ── Init (called once when tab first opens, then on camera change) ──
+  window.vcInit = async function() {
+    if (!vcInitDone) {
+      vcInitDone = true;
+      vcBuildCameraSelect();
+      vcInitCanvas();
+      // Load Chart.js if not already loaded
+      if (typeof Chart === 'undefined') {
+        await new Promise(res => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+          s.onload = res; document.head.appendChild(s);
+        });
+      }
+      vcInitChart();
+    }
+    vcCamId = parseInt(document.getElementById('vc-cam-select').value) || 0;
+    vcStartStream();
+    await vcLoadLine();
+    await vcLoadStatus();
+    await vcLoadSnapshots();
+    await vcLoadHourly();
+    vcConnectSSE();
+    // Fallback polls
+    if (vcPollTimer) clearInterval(vcPollTimer);
+    vcPollTimer = setInterval(() => { vcLoadSnapshots(); vcLoadStatus(); vcLoadHourly(); }, 10000);
+  };
+
+  // ── Camera dropdown ──────────────────────────────────────────
+  function vcBuildCameraSelect() {
+    const sel = document.getElementById('vc-cam-select');
+    if (!sel) return;
+    sel.innerHTML = '';
+    (window.cameras || []).forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = `Kamera ${c.id} \u2013 ${c.name}`;
+      sel.appendChild(o);
+    });
+  }
+
+  window.vcCameraChange = function() {
+    const newId = parseInt(document.getElementById('vc-cam-select').value) || 0;
+    if (newId === vcCamId) return;
+    vcCamId = newId;
+    if (vcSse) { vcSse.close(); vcSse = null; }
+    vcSnaps = []; vcRenderSnaps();
+    vcStartStream(); vcLoadLine(); vcLoadStatus(); vcLoadSnapshots(); vcLoadHourly(); vcConnectSSE();
+  };
+
+  // ── Stream ────────────────────────────────────────────────────
+  function vcStartStream() {
+    const img = document.getElementById('vc-stream-img');
+    if (!img) return;
+    img.src = `/api/people-counter/stream/${vcCamId}?t=${Date.now()}`;
+    const lbl = document.getElementById('vc-stream-label');
+    if (lbl) lbl.textContent = `Kamera ${vcCamId} \u2013 People Counter`;
+  }
+
+  window.vcRefresh = function() {
+    vcStartStream(); vcLoadStatus(); vcLoadSnapshots(); vcLoadHourly();
+  };
+
+  // ── Canvas / Line drawing ─────────────────────────────────────
+  function vcInitCanvas() {
+    const canvas = document.getElementById('vc-canvas');
+    const cont = document.getElementById('vc-stream-container');
+    if (!canvas || !cont) return;
+    canvas.addEventListener('mousedown', vcMD);
+    canvas.addEventListener('mousemove', vcMM);
+    canvas.addEventListener('mouseup',   vcMU);
+    canvas.addEventListener('touchstart', vcTS, { passive: false });
+    canvas.addEventListener('touchmove',  vcTM, { passive: false });
+    canvas.addEventListener('touchend',   vcTE);
+    new ResizeObserver(vcResizeCanvas).observe(cont);
+    vcResizeCanvas();
+  }
+
+  function vcResizeCanvas() {
+    const canvas = document.getElementById('vc-canvas');
+    const cont = document.getElementById('vc-stream-container');
+    if (!canvas || !cont) return;
+    canvas.width = cont.clientWidth; canvas.height = cont.clientHeight;
+    vcDrawOverlay();
+  }
+
+  window.vcToggleDraw = function() {
+    vcDraw = !vcDraw;
+    const btn = document.getElementById('vc-btn-draw');
+    const canvas = document.getElementById('vc-canvas');
+    const tip = document.getElementById('vc-draw-tip');
+    if (btn) btn.style.color = vcDraw ? 'var(--accent)' : '';
+    if (canvas) { canvas.style.pointerEvents = vcDraw ? 'auto' : 'none'; canvas.style.cursor = vcDraw ? 'crosshair' : 'default'; }
+    if (tip) tip.style.opacity = vcDraw ? '1' : '0';
+  };
+
+  function vcNorm(ex, ey) {
+    const c = document.getElementById('vc-canvas');
+    const r = c.getBoundingClientRect();
+    return { x: Math.max(0, Math.min(1, (ex - r.left) / r.width)), y: Math.max(0, Math.min(1, (ey - r.top) / r.height)) };
+  }
+  function vcDist(a, b) { return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2); }
+
+  function vcMD(e) { if(!vcDraw)return; e.preventDefault(); vcDrawStart=vcNorm(e.clientX,e.clientY); vcIsDragging=true; }
+  function vcMM(e) { if(!vcDraw||!vcIsDragging)return; e.preventDefault(); vcPreview(vcDrawStart,vcNorm(e.clientX,e.clientY)); }
+  function vcMU(e) { if(!vcDraw||!vcIsDragging)return; e.preventDefault(); const p=vcNorm(e.clientX,e.clientY); vcIsDragging=false; if(vcDist(vcDrawStart,p)>0.02) vcSubmitLine(vcDrawStart.x,vcDrawStart.y,p.x,p.y); vcDrawStart=null; }
+  function vcTS(e) { if(!vcDraw)return; e.preventDefault(); const t=e.touches[0]; vcDrawStart=vcNorm(t.clientX,t.clientY); vcIsDragging=true; }
+  function vcTM(e) { if(!vcDraw||!vcIsDragging)return; e.preventDefault(); const t=e.touches[0]; vcPreview(vcDrawStart,vcNorm(t.clientX,t.clientY)); }
+  function vcTE(e) { if(!vcDraw||!vcIsDragging)return; e.preventDefault(); const t=e.changedTouches[0]; const p=vcNorm(t.clientX,t.clientY); vcIsDragging=false; if(vcDist(vcDrawStart,p)>0.02) vcSubmitLine(vcDrawStart.x,vcDrawStart.y,p.x,p.y); vcDrawStart=null; }
+
+  function vcPreview(s, e) {
+    const canvas=document.getElementById('vc-canvas'); if(!canvas)return;
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const x1=s.x*canvas.width,y1=s.y*canvas.height,x2=e.x*canvas.width,y2=e.y*canvas.height;
+    ctx.save(); ctx.setLineDash([7,3]); ctx.strokeStyle='rgba(0,87,255,.8)'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#0057FF';
+    ctx.beginPath(); ctx.arc(x1,y1,5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x2,y2,5,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  function vcDrawOverlay() {
+    const canvas=document.getElementById('vc-canvas'); if(!canvas)return;
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    if(!vcLine) return;
+    const {x1,y1,x2,y2}=vcLine;
+    const lx1=x1*canvas.width,ly1=y1*canvas.height,lx2=x2*canvas.width,ly2=y2*canvas.height;
+    ctx.save();
+    ctx.strokeStyle='#f59e0b'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(lx1,ly1); ctx.lineTo(lx2,ly2); ctx.stroke();
+    ctx.fillStyle='#f59e0b';
+    ctx.beginPath(); ctx.arc(lx1,ly1,5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(lx2,ly2,5,0,Math.PI*2); ctx.fill();
+    const mx=(lx1+lx2)/2,my=(ly1+ly2)/2,dx=lx2-lx1,dy=ly2-ly1,len=Math.sqrt(dx*dx+dy*dy)||1;
+    const nx=-dy/len,ny=dx/len,ARR=30;
+    vcArrow(ctx,mx,my,mx+nx*ARR,my+ny*ARR,'#10B981');
+    ctx.font='bold 12px Inter,sans-serif'; ctx.fillStyle='#10B981'; ctx.fillText('IN',mx+nx*(ARR+8)-6,my+ny*(ARR+8)+4);
+    vcArrow(ctx,mx,my,mx-nx*ARR,my-ny*ARR,'#EF4444');
+    ctx.fillStyle='#EF4444'; ctx.fillText('OUT',mx-nx*(ARR+8)-14,my-ny*(ARR+8)+4);
+    ctx.restore();
+  }
+
+  function vcArrow(ctx,x1,y1,x2,y2,color){
+    const dx=x2-x1,dy=y2-y1,ang=Math.atan2(dy,dx),h=9;
+    ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=1.8;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-h*Math.cos(ang-Math.PI/6),y2-h*Math.sin(ang-Math.PI/6));
+    ctx.lineTo(x2-h*Math.cos(ang+Math.PI/6),y2-h*Math.sin(ang+Math.PI/6));
+    ctx.closePath(); ctx.fill();
+  }
+
+  async function vcSubmitLine(x1,y1,x2,y2){
+    try {
+      const r=await fetch(`/api/people-counter/${vcCamId}/line`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({x1,y1,x2,y2})});
+      const d=await r.json();
+      if(d.success){ vcLine={x1,y1,x2,y2}; vcDrawOverlay(); vcUpdateLineInfo(); if(vcDraw) vcToggleDraw(); toast('Garis IN/OUT berhasil diset!','success'); }
+    } catch(e) { console.error('[VC] submitLine:', e); }
+  }
+
+  window.vcClearLine = function() { vcLine=null; vcDrawOverlay(); vcUpdateLineInfo(); };
+
+  function vcUpdateLineInfo(){
+    const el=document.getElementById('vc-line-info'); if(!el)return;
+    el.textContent = vcLine ? `(${(vcLine.x1*100).toFixed(0)}%,${(vcLine.y1*100).toFixed(0)}%) \u2192 (${(vcLine.x2*100).toFixed(0)}%,${(vcLine.y2*100).toFixed(0)}%)` : 'Belum ada garis';
+  }
+
+  async function vcLoadLine(){
+    try{ const r=await fetch(`/api/people-counter/${vcCamId}/line`); const d=await r.json(); if(d.success&&d.line){vcLine=d.line;vcDrawOverlay();vcUpdateLineInfo();} }catch(e){}
+  }
+
+  // ── Status / Counters ─────────────────────────────────────────
+  async function vcLoadStatus(){
+    try{ const r=await fetch(`/api/people-counter/${vcCamId}/status`); const d=await r.json(); if(d.success) vcApplyStatus(d.data); }catch(e){}
+  }
+
+  function vcApplyStatus(data){
+    vcSetCnt('in',  data.in_count||0);
+    vcSetCnt('out', data.out_count||0);
+    vcSetCnt('uni', data.unique_persons||0);
+    if(data.line){ vcLine=data.line; vcDrawOverlay(); vcUpdateLineInfo(); }
+  }
+
+  function vcSetCnt(key,val){
+    const el=document.getElementById(`vc-cnt-${key}`); if(!el)return;
+    const old=parseInt(el.textContent)||0;
+    if(val!==old){ el.textContent=val; el.style.transform='scale(1.15)'; setTimeout(()=>el.style.transform='',350); }
+  }
+
+  window.vcReset = async function(){
+    if(!confirm(`Reset counter sesi kamera ${vcCamId}? History DB tetap tersimpan.`)) return;
+    try{ const r=await fetch(`/api/people-counter/${vcCamId}/reset`,{method:'POST'}); const d=await r.json(); if(d.success){vcSetCnt('in',0);vcSetCnt('out',0);toast('Counter sesi direset','success');} }catch(e){}
+  };
+
+  // ── SSE ───────────────────────────────────────────────────────
+  function vcConnectSSE(){
+    if(vcSse){vcSse.close();vcSse=null;}
+    const dot=document.getElementById('vc-sse-dot'), sts=document.getElementById('vc-sse-status');
+    try{
+      vcSse=new EventSource(`/api/people-counter/${vcCamId}/events`);
+      vcSse.onopen=()=>{ if(dot){dot.style.background='#10B981';dot.style.boxShadow='0 0 6px #10B981';} if(sts)sts.textContent='Terhubung \u2013 Real-time'; };
+      vcSse.onmessage=(e)=>{ try{ vcHandleSSE(JSON.parse(e.data)); }catch(_){} };
+      vcSse.onerror=()=>{ if(dot){dot.style.background='#EF4444';dot.style.boxShadow='none';} if(sts)sts.textContent='Terputus \u2013 reconnecting\u2026'; };
+    }catch(e){ console.warn('[VC] SSE fallback'); }
+  }
+
+  function vcHandleSSE(ev){
+    if(ev.in_count!==undefined) vcSetCnt('in',ev.in_count);
+    if(ev.out_count!==undefined) vcSetCnt('out',ev.out_count);
+    if(ev.unique_persons!==undefined) vcSetCnt('uni',ev.unique_persons);
+    if(ev.type==='crossing'){
+      const dir=ev.direction;
+      toast(`${dir==='in'?'\u25b2 MASUK':'\u25bc KELUAR'} \u2013 ID:${ev.track_id} (x${ev.crossing_count} kali)`, dir==='in'?'success':'error');
+      if(ev.snapshot_path) vcPrependSnap({track_id:ev.track_id,direction:dir,timestamp:ev.timestamp,snapshot_path:ev.snapshot_path,crossing_count:ev.crossing_count,total_crossings:ev.crossing_count,total_in:0,total_out:0});
+      vcLoadHourly();
+    }
+  }
+
+  // ── Snapshots ─────────────────────────────────────────────────
+  async function vcLoadSnapshots(){
+    try{ const r=await fetch(`/api/people-counter/${vcCamId}/snapshots?limit=50`); const d=await r.json(); if(d.success){vcSnaps=d.data||[];vcRenderSnaps();} }catch(e){}
+  }
+  function vcPrependSnap(s){ vcSnaps.unshift(s); if(vcSnaps.length>100)vcSnaps.pop(); vcRenderSnaps(); }
+
+  function vcRenderSnaps(){
+    const gallery=document.getElementById('vc-snap-gallery'); if(!gallery)return;
+    const cnt=document.getElementById('vc-snap-count'); if(cnt)cnt.textContent=vcSnaps.length;
+    if(!vcSnaps.length){ gallery.innerHTML='<div style="text-align:center;color:var(--text-3);font-size:12px;padding:30px 10px;line-height:1.7;">Belum ada crossing.<br/>Atur garis IN/OUT lalu tunggu deteksi orang.</div>'; return; }
+    gallery.innerHTML='';
+    vcSnaps.forEach((snap,i)=>{
+      const dir=snap.direction, ts=vcFmtTs(snap.timestamp);
+      const totalX=snap.total_crossings||snap.crossing_count||1;
+      const inCnt=snap.total_in||0, outCnt=snap.total_out||0;
+      const item=document.createElement('div');
+      item.style.cssText='display:flex;gap:8px;align-items:flex-start;padding:8px;border-radius:6px;background:var(--surface-2);border:1px solid var(--border);border-left:3px solid '+(dir==='in'?'var(--green)':'var(--red)')+';animation:toast-in .3s ease both;';
+      item.style.animationDelay=`${Math.min(i,8)*0.04}s`;
+      item.innerHTML=`
+        <img src="${snap.snapshot_path}" style="width:64px;height:44px;object-fit:cover;border-radius:4px;flex-shrink:0;cursor:pointer;background:var(--bg);"
+          onclick="window.open('${snap.snapshot_path}','_blank')"
+          onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2264%22 height=%2244%22><rect fill=%22%23f7f7f8%22 width=%2264%22 height=%2244%22/><text fill=%22%238a8a93%22 x=%2232%22 y=%2226%22 text-anchor=%22middle%22 font-size=%228%22>No img</text></svg>'"/>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:2px;">
+            <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;text-transform:uppercase;letter-spacing:.5px;background:${dir==='in'?'var(--green-light)':'var(--red-light)'};color:${dir==='in'?'var(--green-text)':'var(--red-text)'};">${dir==='in'?'\u25b2 MASUK':'\u25bc KELUAR'}</span>
+            <span style="font-size:9px;font-weight:600;padding:1px 6px;border-radius:8px;background:var(--accent-light);color:var(--accent);">ID:${snap.track_id}</span>
+            ${totalX>1?`<span style="font-size:9px;font-weight:600;padding:1px 6px;border-radius:8px;background:var(--amber-light);color:var(--amber-text);">x${totalX} crossing</span>`:''}
+          </div>
+          <div style="font-size:10px;color:var(--text-3);">${ts}</div>
+          ${totalX>1?`<div style="font-size:10px;color:var(--text-2);margin-top:1px;">${inCnt}\xd7 masuk, ${outCnt}\xd7 keluar</div>`:''}
+        </div>`;
+      gallery.appendChild(item);
+    });
+  }
+
+  function vcFmtTs(s){ try{return new Date(s).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'});}catch{return s||'\u2013';} }
+
+  // ── Chart ─────────────────────────────────────────────────────
+  function vcInitChart(){
+    const ctx=document.getElementById('vc-chart'); if(!ctx||typeof Chart==='undefined')return;
+    vcChart=new Chart(ctx,{
+      type:'bar',
+      data:{labels:[],datasets:[
+        {label:'IN',data:[],backgroundColor:'rgba(16,185,129,.65)',borderColor:'#10B981',borderWidth:1.5,borderRadius:3,borderSkipped:false},
+        {label:'OUT',data:[],backgroundColor:'rgba(239,68,68,.6)',borderColor:'#EF4444',borderWidth:1.5,borderRadius:3,borderSkipped:false}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,animation:{duration:350},
+        plugins:{legend:{labels:{color:'#8A8A93',boxWidth:10,font:{size:10}}},tooltip:{backgroundColor:'rgba(15,23,42,.9)',titleColor:'#f1f5f9',bodyColor:'#94a3b8'}},
+        scales:{
+          x:{grid:{color:'rgba(0,0,0,.04)'},ticks:{color:'#8A8A93',font:{size:9},maxRotation:0}},
+          y:{beginAtZero:true,grid:{color:'rgba(0,0,0,.04)'},ticks:{color:'#8A8A93',font:{size:9},precision:0}}
+        }
+      }
+    });
+  }
+
+  async function vcLoadHourly(){
+    try{
+      const r=await fetch(`/api/people-counter/${vcCamId}/hourly`); const d=await r.json(); if(!d.success)return;
+      const rows=d.data||[], map={};
+      rows.forEach(row=>{ const h=row.hour.split(' ')[1].split(':')[0]; map[h]=row; });
+      const labels=[],inD=[],outD=[];
+      for(let h=0;h<24;h++){ const k=String(h).padStart(2,'0'); labels.push(`${k}:00`); const row=map[k]||{in_count:0,out_count:0}; inD.push(row.in_count); outD.push(row.out_count); }
+      let lastNZ=0; for(let i=23;i>=0;i--){if(inD[i]>0||outD[i]>0){lastNZ=i;break;}} const trim=Math.min(lastNZ+2,23);
+      if(vcChart){ vcChart.data.labels=labels.slice(0,trim+1); vcChart.data.datasets[0].data=inD.slice(0,trim+1); vcChart.data.datasets[1].data=outD.slice(0,trim+1); vcChart.update('none'); }
+      // Update table
+      const tbody=document.getElementById('vc-hourly-tbody'); if(!tbody)return;
+      if(!rows.length){tbody.innerHTML='<tr><td colspan="3" style="padding:10px 8px;text-align:center;color:var(--text-3);">Belum ada data</td></tr>';return;}
+      tbody.innerHTML='';
+      [...rows].reverse().forEach(row=>{
+        const h=(row.hour.split(' ')[1]||row.hour);
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td style="padding:4px 8px;border-bottom:1px solid var(--border);">${h}</td><td style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--green);font-weight:600;">${row.in_count}</td><td style="padding:4px 8px;border-bottom:1px solid var(--border);color:var(--red);font-weight:600;">${row.out_count}</td>`;
+        tbody.appendChild(tr);
+      });
+    }catch(e){}
+  }
+})();
+</script>
 </body>
 </html>
+
