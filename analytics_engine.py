@@ -1159,19 +1159,27 @@ def process_visitor_counting(cam_id, frame, infer_fr, scale, state, meta):
     lx1 = int(line['x1'] * w); ly1 = int(line['y1'] * h)
     lx2 = int(line['x2'] * w); ly2 = int(line['y2'] * h)
 
-    # Draw the counting line (orange, like reference screenshot)
+    # Draw the counting line (bright orange line with endpoint circles)
     cv2.line(out, (lx1, ly1), (lx2, ly2), (0, 140, 255), 3, cv2.LINE_AA)
-    cv2.circle(out, (lx1, ly1), 5, (0, 200, 255), -1)
-    cv2.circle(out, (lx2, ly2), 5, (0, 200, 255), -1)
+    cv2.circle(out, (lx1, ly1), 6, (0, 200, 255), -1, cv2.LINE_AA)
+    cv2.circle(out, (lx2, ly2), 6, (0, 200, 255), -1, cv2.LINE_AA)
+
     # Normal vector to determine IN/OUT side labels
     dx = lx2 - lx1; dy = ly2 - ly1
     length = max(1, (dx*dx + dy*dy)**0.5)
     nx, ny = -dy/length, dx/length   # left-hand normal = 'IN' side
     mx, my = (lx1+lx2)//2, (ly1+ly2)//2
-    cv2.putText(out, 'IN',  (int(mx + nx*30 - 12), int(my + ny*30 + 6)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 80), 2, cv2.LINE_AA)
-    cv2.putText(out, 'OUT', (int(mx - nx*45 - 12), int(my - ny*45 + 6)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 80, 230), 2, cv2.LINE_AA)
+
+    # Draw IN side arrow & text (Green)
+    in_arrow_end = (int(mx + nx * 40), int(my + ny * 40))
+    cv2.arrowedLine(out, (mx, my), in_arrow_end, (0, 220, 80), 2, cv2.LINE_AA, tipLength=0.35)
+    draw_text_with_bg(out, "MASUK (IN)", (int(mx + nx * 45 - 35), int(my + ny * 45 + 5)), (255, 255, 255), (16, 185, 129))
+
+    # Draw OUT side arrow & text (Red)
+    out_arrow_end = (int(mx - nx * 40), int(my - ny * 40))
+    cv2.arrowedLine(out, (mx, my), out_arrow_end, (0, 80, 230), 2, cv2.LINE_AA, tipLength=0.35)
+    draw_text_with_bg(out, "KELUAR (OUT)", (int(mx - nx * 55 - 40), int(my - ny * 55 + 5)), (255, 255, 255), (239, 68, 68))
+
 
     # ── YOLO ByteTrack — persons only ────────────────────────────
     tracked = []

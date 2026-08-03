@@ -2672,12 +2672,22 @@ code, pre, .mono, .font-mono,
             </div>
 
             <!-- Controls -->
-            <div id="vc-line-controls" style="display:none;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:12px;">
-              <div style="color:var(--text-2);margin-bottom:8px;font-weight:600;">Atur Garis IN/OUT (Klik 2 Titik)</div>
-              <div id="vc-line-tip" style="color:var(--text-3);font-size:11px;margin-bottom:8px;">Klik titik pertama di video…</div>
-              <div style="display:flex;gap:8px;">
-                <button class="btn" onclick="vcClearLine()" style="font-size:11px;">✕ Hapus Garis</button>
-                <span id="vc-line-info" style="margin-left:auto;color:var(--text-3);align-self:center;">Belum ada garis</span>
+            <div id="vc-line-controls" style="display:none;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:12px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <div style="color:var(--text);font-weight:700;display:flex;align-items:center;gap:6px;">
+                  <i data-lucide="edit-3" style="width:14px;height:14px;color:var(--accent);"></i>
+                  Atur Garis IN/OUT (Klik 2 Titik di Video)
+                </div>
+                <span id="vc-line-info" style="font-size:11px;color:var(--text-3);">Belum ada garis</span>
+              </div>
+              <div id="vc-line-tip" style="color:var(--text-3);font-size:11px;margin-bottom:10px;background:var(--surface-2);padding:6px 10px;border-radius:6px;">Klik titik pertama di video untuk mulai menggambar...</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button class="btn" onclick="vcFlipLine()" style="font-size:11px;background:var(--surface-2);color:var(--text);border:1px solid var(--border);display:flex;align-items:center;gap:4px;">
+                  🔄 Tukar Arah IN ↔ OUT
+                </button>
+                <button class="btn" onclick="vcClearLine()" style="font-size:11px;color:var(--red);border-color:rgba(239,68,68,.3);display:flex;align-items:center;gap:4px;">
+                  ✕ Hapus Garis
+                </button>
               </div>
             </div>
           </div>
@@ -2685,17 +2695,16 @@ code, pre, .mono, .font-mono,
           <!-- RIGHT col: Camera Footage Analysis + snapshot gallery -->
           <div style="display:flex;flex-direction:column;gap:10px;min-height:0;">
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;flex:1;min-height:0;gap:10px;">
-              <!-- Title row -->
-              <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+              <!-- Title & Filter row -->
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;">
                 <span style="font-size:13px;font-weight:700;color:var(--text);">Camera Footage Analysis</span>
-                <button onclick="vcLoadSnapshots()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 6px;cursor:pointer;color:var(--text-3);">↻</button>
-              </div>
-              <!-- Filter -->
-              <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-                <span style="font-size:11px;color:var(--text-3);">Filter:</span>
-                <select id="vc-snap-filter" class="form-select" style="font-size:11px;flex:1;" onchange="vcLoadSnapshots()">
-                  <option value="">All</option>
-                </select>
+                <div style="display:flex;align-items:center;gap:4px;">
+                  <span style="font-size:10px;color:var(--text-3);">Jam:</span>
+                  <select id="vc-snap-filter" class="form-select" style="font-size:11px;padding:2px 6px;width:110px;" onchange="vcLoadSnapshots()">
+                    <option value="">Semua (All)</option>
+                  </select>
+                  <button onclick="vcLoadSnapshots()" title="Segarkan Snapshot" style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 6px;cursor:pointer;color:var(--text-3);font-size:12px;">↻</button>
+                </div>
               </div>
               <!-- Snapshot list -->
               <div id="vc-snap-gallery" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
@@ -2705,6 +2714,7 @@ code, pre, .mono, .font-mono,
               <button id="vc-load-more-btn" onclick="vcLoadMoreSnaps()" style="display:none;width:100%;padding:8px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:opacity .2s;flex-shrink:0;">Load More</button>
             </div>
           </div>
+
 
         </div><!-- /grid -->
       </div>
@@ -5240,24 +5250,70 @@ window.addEventListener('DOMContentLoaded',()=>{
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    // Draw committed line (orange)
+    // Draw committed line (orange with glow)
     if (vcLine) {
       const lx1=vcLine.x1*canvas.width, ly1=vcLine.y1*canvas.height;
       const lx2=vcLine.x2*canvas.width, ly2=vcLine.y2*canvas.height;
       ctx.save();
-      ctx.strokeStyle='#FF8C00'; ctx.lineWidth=2.5; ctx.shadowColor='#FF8C00'; ctx.shadowBlur=6;
+      ctx.strokeStyle='#FF8C00'; ctx.lineWidth=3; ctx.shadowColor='#FF8C00'; ctx.shadowBlur=8;
       ctx.beginPath(); ctx.moveTo(lx1,ly1); ctx.lineTo(lx2,ly2); ctx.stroke();
       ctx.shadowBlur=0;
+
+      // Endpoint circles
       ctx.fillStyle='#FF8C00';
-      ctx.beginPath(); ctx.arc(lx1,ly1,5,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(lx2,ly2,5,0,Math.PI*2); ctx.fill();
-      // Side labels
+      ctx.beginPath(); ctx.arc(lx1,ly1,6,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(lx2,ly2,6,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='#FFFFFF'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(lx1,ly1,6,0,Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(lx2,ly2,6,0,Math.PI*2); ctx.stroke();
+
+      // Normal vector to determine IN/OUT side labels
       const mx=(lx1+lx2)/2, my=(ly1+ly2)/2;
       const dx=lx2-lx1, dy=ly2-ly1, len=Math.sqrt(dx*dx+dy*dy)||1;
       const nx=-dy/len, ny=dx/len;
-      ctx.font='bold 12px Inter,sans-serif';
-      ctx.fillStyle='#10B981'; ctx.fillText('IN',  mx+nx*35-8, my+ny*35+5);
-      ctx.fillStyle='#EF4444'; ctx.fillText('OUT', mx-nx*50-12, my-ny*50+5);
+
+      // IN Arrow (Green)
+      const inX = mx + nx * 40, inY = my + ny * 40;
+      ctx.strokeStyle='#10B981'; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(mx,my); ctx.lineTo(inX,inY); ctx.stroke();
+      const inAngle = Math.atan2(ny, nx);
+      ctx.fillStyle='#10B981';
+      ctx.beginPath();
+      ctx.moveTo(inX, inY);
+      ctx.lineTo(inX - 10 * Math.cos(inAngle - Math.PI/6), inY - 10 * Math.sin(inAngle - Math.PI/6));
+      ctx.lineTo(inX - 10 * Math.cos(inAngle + Math.PI/6), inY - 10 * Math.sin(inAngle + Math.PI/6));
+      ctx.closePath(); ctx.fill();
+
+      // IN Badge
+      ctx.fillStyle='#10B981';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(inX - 42, inY - 22, 84, 20, 10);
+      else ctx.rect(inX - 42, inY - 22, 84, 20);
+      ctx.fill();
+      ctx.fillStyle='#FFFFFF'; ctx.font='bold 10px Inter,sans-serif'; ctx.textAlign='center';
+      ctx.fillText('▲ MASUK (IN)', inX, inY - 8);
+
+      // OUT Arrow (Red)
+      const outX = mx - nx * 40, outY = my - ny * 40;
+      ctx.strokeStyle='#EF4444'; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.moveTo(mx,my); ctx.lineTo(outX,outY); ctx.stroke();
+      const outAngle = Math.atan2(-ny, -nx);
+      ctx.fillStyle='#EF4444';
+      ctx.beginPath();
+      ctx.moveTo(outX, outY);
+      ctx.lineTo(outX - 10 * Math.cos(outAngle - Math.PI/6), outY - 10 * Math.sin(outAngle - Math.PI/6));
+      ctx.lineTo(outX - 10 * Math.cos(outAngle + Math.PI/6), outY - 10 * Math.sin(outAngle + Math.PI/6));
+      ctx.closePath(); ctx.fill();
+
+      // OUT Badge
+      ctx.fillStyle='#EF4444';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(outX - 45, outY + 4, 90, 20, 10);
+      else ctx.rect(outX - 45, outY + 4, 90, 20);
+      ctx.fill();
+      ctx.fillStyle='#FFFFFF'; ctx.font='bold 10px Inter,sans-serif'; ctx.textAlign='center';
+      ctx.fillText('▼ KELUAR (OUT)', outX, outY + 18);
+
       ctx.restore();
     }
 
@@ -5287,16 +5343,36 @@ window.addEventListener('DOMContentLoaded',()=>{
         vcLine = {x1,y1,x2,y2};
         vcDrawOverlay();
         vcUpdateLineInfo();
-        toast('Garis IN/OUT berhasil diset!', 'success');
+        toast('Garis IN/OUT berhasil disimpan!', 'success');
+        vcSetTip('Garis IN/OUT aktif! Sisi Hijau = MASUK (IN), Sisi Merah = KELUAR (OUT)');
       }
     } catch(e) { console.error('[VC] submitLine:', e); }
   }
 
-  window.vcClearLine = function() {
+  window.vcFlipLine = async function() {
+    if (!vcLine) {
+      toast('Belum ada garis. Gambar garis terlebih dahulu.', 'warning');
+      return;
+    }
+    const flipped = { x1: vcLine.x2, y1: vcLine.y2, x2: vcLine.x1, y2: vcLine.y1 };
+    await vcSubmitLine(flipped.x1, flipped.y1, flipped.x2, flipped.y2);
+    toast('Arah IN/OUT berhasil ditukar!', 'info');
+  };
+
+  window.vcClearLine = async function() {
+    try {
+      await fetch(`/api/vc/${vcCamId}/line`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x1: 0, y1: 0, x2: 0, y2: 0 })
+      });
+    } catch(e) {}
     vcLine = null; vcClickPt1 = null;
     vcDrawOverlay(); vcUpdateLineInfo();
-    vcSetTip('Klik titik pertama di video…');
+    vcSetTip('Garis dihapus. Klik titik pertama di video…');
+    toast('Garis IN/OUT berhasil dihapus', 'info');
   };
+
 
   function vcUpdateLineInfo() {
     const el = document.getElementById('vc-line-info');
