@@ -28,7 +28,9 @@ import queue
 from camera_manager import CameraManager
 from analytics_engine import (
     run_analytics, load_yolo_model, load_yolo_heavy, load_mediapipe, load_yolo_pose_model,
-    register_face, get_registered_faces_list, delete_registered_face
+    register_face, get_registered_faces_list, delete_registered_face,
+    vc_register_sse_client, vc_unregister_sse_client,
+    _vc_db_path as vc_db_path
 )
 from zone_monitor import get_zone_monitor, ZoneConfig
 from people_counter import (
@@ -39,6 +41,11 @@ app = FastAPI(title="NVR AI Analytics Service")
 
 os.makedirs("uploads/faces", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+# Mount snapshots directory for VC crops
+_snap_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshots")
+os.makedirs(_snap_root, exist_ok=True)
+app.mount("/snapshots", StaticFiles(directory=_snap_root), name="snapshots")
 
 # CORS middleware configuration
 app.add_middleware(
@@ -779,6 +786,160 @@ def api_counter_stream(cam_id: int):
             "Pragma": "no-cache",
             "Expires": "0",
             "Access-Control-Allow-Origin": "*"
+        }
+    )
+
+
+# ══════════════════════════════════════════════════════════════════
+#  Visitor Counting API  /api/vc/*
+# ══════════════════════════════════════════════════════════════════
+
+class VcLineConfig(BaseModel):
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+def _vc_state(cam_id: int) -> dict:
+    """Get or create the VC sub-state for a given camera."""
+    s = get_camera_state(cam_id)
+    if 'vc' not in s:
+        s['vc'] = {'line': None, 'counts': {'in': 0, 'out': 0},
+                   'prev_pos': {}, 'cooldown': {}, 'cross_count': {}}
+    return s['vc']
+
+
+@app.post("/api/vc/{cam_id}/line")
+def api_vc_set_line(cam_id: int, cfg: VcLineConfig):
+    """Set the IN/OUT counting line (normalized 0-1 coords)."""
+    line = {'x1': cfg.x1, 'y1': cfg.y1, 'x2': cfg.x2, 'y2': cfg.y2}
+    _vc_state(cam_id)['line'] = line
+    return {'success': True, 'line': line}
+
+
+@app.get("/api/vc/{cam_id}/line")
+def api_vc_get_line(cam_id: int):
+    """Return the current counting line config."""
+    line = _vc_state(cam_id).get('line')
+    return {'success': True, 'line': line}
+
+
+@app.get("/api/vc/{cam_id}/status")
+def api_vc_status(cam_id: int):
+    """Real-time IN/OUT counters from in-memory state."""
+    vc = _vc_state(cam_id)
+    return {
+        'success': True,
+        'data': {
+            'cam_id': cam_id,
+            'in_count':  vc['counts']['in'],
+            'out_count': vc['counts']['out'],
+            'line': vc.get('line'),
+            'unique_persons': len(vc.get('cross_count', {}))
+        }
+    }
+
+
+@app.post("/api/vc/{cam_id}/reset")
+def api_vc_reset(cam_id: int):
+    """Reset session counters (DB history is kept)."""
+    vc = _vc_state(cam_id)
+    vc['counts'] = {'in': 0, 'out': 0}
+    vc['prev_pos'].clear()
+    vc['cooldown'].clear()
+    vc['cross_count'].clear()
+    return {'success': True, 'message': 'Counter sesi direset'}
+
+
+@app.get("/api/vc/{cam_id}/snapshots")
+def api_vc_snapshots(
+    cam_id: int,
+    date: Optional[str] = Query(None),
+    hour: Optional[int] = Query(None),
+    limit: int  = Query(50),
+    offset: int = Query(0)
+):
+    """List crossing snapshots from DB, newest first."""
+    date = date or time.strftime("%Y-%m-%d")
+    try:
+        conn = sqlite3.connect(vc_db_path(), timeout=5)
+        conn.row_factory = sqlite3.Row
+        if hour is not None:
+            hour_str = f"{date} {str(hour).zfill(2)}:"
+            rows = conn.execute(
+                "SELECT * FROM vc_events WHERE cam_id=? AND timestamp LIKE ? "
+                "ORDER BY id DESC LIMIT ? OFFSET ?",
+                (cam_id, hour_str + '%', limit, offset)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM vc_events WHERE cam_id=? AND timestamp LIKE ? "
+                "ORDER BY id DESC LIMIT ? OFFSET ?",
+                (cam_id, date + "%", limit, offset)
+            ).fetchall()
+        conn.close()
+        return {'success': True, 'data': [dict(r) for r in rows]}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+@app.get("/api/vc/{cam_id}/hourly")
+def api_vc_hourly(
+    cam_id: int,
+    date: Optional[str] = Query(None)
+):
+    """Aggregated IN/OUT counts per hour for a given date."""
+    date = date or time.strftime("%Y-%m-%d")
+    try:
+        conn = sqlite3.connect(vc_db_path(), timeout=5)
+        rows = conn.execute(
+            "SELECT strftime('%Y-%m-%d %H:00:00', timestamp) as hour, "
+            "SUM(CASE WHEN direction='in'  THEN 1 ELSE 0 END) as in_count, "
+            "SUM(CASE WHEN direction='out' THEN 1 ELSE 0 END) as out_count "
+            "FROM vc_events WHERE cam_id=? AND timestamp LIKE ? "
+            "GROUP BY hour ORDER BY hour",
+            (cam_id, date + "%")
+        ).fetchall()
+        conn.close()
+        data = [{'hour': r[0], 'in_count': r[1], 'out_count': r[2]} for r in rows]
+        return {'success': True, 'data': data}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+@app.get("/api/vc/{cam_id}/events")
+async def api_vc_events(cam_id: int, request: Request):
+    """SSE stream — pushes crossing events in real-time."""
+    q = vc_register_sse_client(cam_id)
+
+    async def event_generator():
+        vc = _vc_state(cam_id)
+        init = json.dumps({
+            'type': 'init',
+            'in_count':  vc['counts']['in'],
+            'out_count': vc['counts']['out'],
+            'line': vc.get('line'),
+        })
+        yield f"data: {init}\n\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = q.get(timeout=1.0)
+                    yield f"data: {msg}\n\n"
+                except Exception:
+                    yield f"data: {{\"type\":\"ping\"}}\n\n"
+        finally:
+            vc_unregister_sse_client(cam_id, q)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
         }
     )
 

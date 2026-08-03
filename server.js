@@ -610,7 +610,53 @@ app.use('/api/people-counter', (req, res) => {
     proxyReq.end();
 });
 
-// Resolve YouTube Live stream URL to direct HLS stream
+// ── Proxy /api/vc/* → Python AI Service (port 5001) — Visitor Counting ────
+app.use('/api/vc', (req, res) => {
+    const subPath = req.url;
+    const targetUrl = `http://127.0.0.1:5001/api/vc${subPath}`;
+    const isSSE = req.headers.accept && req.headers.accept.includes('text/event-stream');
+
+    let payload = '';
+    req.on('data', chunk => { payload += chunk; });
+    req.on('end', () => {
+        const options = {
+            method: req.method,
+            headers: { ...req.headers, host: '127.0.0.1:5001' },
+        };
+        const proxyReq = http.request(targetUrl, options, (proxyRes) => {
+            const resHeaders = { ...proxyRes.headers };
+            if (isSSE) {
+                resHeaders['cache-control'] = 'no-cache';
+                resHeaders['x-accel-buffering'] = 'no';
+                resHeaders['connection'] = 'keep-alive';
+            }
+            res.writeHead(proxyRes.statusCode, resHeaders);
+            proxyRes.pipe(res);
+        });
+        if (!isSSE) {
+            proxyReq.setTimeout(10000, () => { proxyReq.destroy(); });
+        }
+        proxyReq.on('error', (err) => {
+            log(`VC proxy error: ${err.message}`, 'error');
+            if (!res.headersSent) res.status(502).json({ success: false, message: 'Gagal terhubung ke AI Service (VC)' });
+        });
+        if (payload) proxyReq.write(payload);
+        proxyReq.end();
+    });
+});
+
+// ── Proxy /snapshots/* → Python AI Service (port 5001) — VC snapshot images ──
+app.use('/snapshots', (req, res) => {
+    const targetUrl = `http://127.0.0.1:5001/snapshots${req.url}`;
+    const proxyReq = http.request(targetUrl, { method: 'GET', headers: req.headers }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+    });
+    proxyReq.on('error', () => { if (!res.headersSent) res.status(502).end(); });
+    proxyReq.end();
+});
+
+
 function resolveYoutubeUrl(youtubeUrl) {
     return new Promise((resolve) => {
         log(`Resolving YouTube Live URL: ${youtubeUrl}...`);

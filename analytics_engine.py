@@ -1006,6 +1006,296 @@ def process_vehicle_tracking(frame, infer_fr, scale, state, meta, cached_data=No
     return out, meta
 
 
+# ══════════════════════════════════════════════════════════════════
+#  VISITOR COUNTING — In-loop line-crossing counter
+# ══════════════════════════════════════════════════════════════════
+
+_vc_db_initialized = False
+_vc_db_lock = threading.Lock()
+
+def _vc_db_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "visitor_counting.db")
+
+def _init_vc_db():
+    global _vc_db_initialized
+    if _vc_db_initialized:
+        return
+    try:
+        conn = sqlite3.connect(_vc_db_path())
+        conn.execute("""CREATE TABLE IF NOT EXISTS vc_events (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            cam_id        INTEGER NOT NULL,
+            track_id      INTEGER NOT NULL,
+            direction     TEXT NOT NULL,
+            timestamp     TEXT NOT NULL,
+            snapshot_path TEXT,
+            crossing_idx  INTEGER DEFAULT 1
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_vc_cam_ts ON vc_events(cam_id, timestamp)")
+        conn.commit()
+        conn.close()
+        _vc_db_initialized = True
+        print("[VC] visitor_counting.db initialized.", flush=True)
+    except Exception as e:
+        print(f"[VC] DB init error: {e}", flush=True)
+
+_init_vc_db()
+
+def _vc_log_async(cam_id, track_id, direction, timestamp, snapshot_path, crossing_idx):
+    """Write one crossing event to SQLite — called from daemon thread to not block frame loop."""
+    try:
+        with _vc_db_lock:
+            conn = sqlite3.connect(_vc_db_path(), timeout=5)
+            conn.execute(
+                "INSERT INTO vc_events (cam_id, track_id, direction, timestamp, snapshot_path, crossing_idx) "
+                "VALUES (?,?,?,?,?,?)",
+                (cam_id, track_id, direction, timestamp, snapshot_path, crossing_idx)
+            )
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        print(f"[VC] DB write error: {e}", flush=True)
+
+def _vc_save_snapshot_async(cam_id, frame_crop, snap_path):
+    """Save cropped snapshot JPEG to disk — called from daemon thread."""
+    try:
+        os.makedirs(os.path.dirname(snap_path), exist_ok=True)
+        cv2.imwrite(snap_path, frame_crop, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    except Exception as e:
+        print(f"[VC] Snapshot save error: {e}", flush=True)
+
+def _segments_intersect(p1, p2, p3, p4):
+    """Return True if segment p1-p2 intersects segment p3-p4 (2-D cross-product method)."""
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    d1 = cross(p3, p4, p1)
+    d2 = cross(p3, p4, p2)
+    d3 = cross(p1, p2, p3)
+    d4 = cross(p1, p2, p4)
+    if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and \
+       ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)):
+        return True
+    return False
+
+# Global SSE queues: vc_sse_queues[cam_id] = list of queue.Queue (one per connected SSE client)
+_vc_sse_queues = {}   # cam_id -> list[queue.Queue]
+_vc_sse_lock  = threading.Lock()
+
+def vc_get_sse_queues(cam_id):
+    with _vc_sse_lock:
+        if cam_id not in _vc_sse_queues:
+            _vc_sse_queues[cam_id] = []
+        return _vc_sse_queues[cam_id]
+
+def vc_register_sse_client(cam_id):
+    q = __import__('queue').Queue(maxsize=50)
+    with _vc_sse_lock:
+        if cam_id not in _vc_sse_queues:
+            _vc_sse_queues[cam_id] = []
+        _vc_sse_queues[cam_id].append(q)
+    return q
+
+def vc_unregister_sse_client(cam_id, q):
+    with _vc_sse_lock:
+        if cam_id in _vc_sse_queues:
+            try:
+                _vc_sse_queues[cam_id].remove(q)
+            except ValueError:
+                pass
+
+def _vc_broadcast(cam_id, event_dict):
+    msg = json.dumps(event_dict)
+    with _vc_sse_lock:
+        for q in list(_vc_sse_queues.get(cam_id, [])):
+            try:
+                q.put_nowait(msg)
+            except Exception:
+                pass
+
+import json as _json_mod
+
+
+def process_visitor_counting(cam_id, frame, infer_fr, scale, state, meta):
+    """Line-crossing people counter — runs every frame inside run_analytics loop.
+
+    State keys used (all scoped under state['vc']):
+      vc_line          : {x1,y1,x2,y2} normalized 0-1, or None
+      vc_counts        : {'in': int, 'out': int}
+      vc_prev_pos      : {track_id: (cx, cy)}  previous centroid
+      vc_cooldown      : {track_id: float}      timestamp of last crossing
+      vc_cross_count   : {track_id: int}        cumulative crossings per track
+    """
+    import json as _jmod
+    h, w = frame.shape[:2]
+    out = frame.copy()
+
+    # ── Init per-camera VC state ──────────────────────────────────
+    if 'vc' not in state:
+        state['vc'] = {
+            'line': None,
+            'counts': {'in': 0, 'out': 0},
+            'prev_pos': {},
+            'cooldown': {},
+            'cross_count': {},
+        }
+    vc = state['vc']
+
+    # ── Draw counter HUD ─────────────────────────────────────────
+    in_cnt  = vc['counts']['in']
+    out_cnt = vc['counts']['out']
+    cv2.rectangle(out, (8, 40), (240, 90), (15, 23, 42), -1)
+    cv2.putText(out, f"IN: {in_cnt}   OUT: {out_cnt}", (14, 72),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 120), 2, cv2.LINE_AA)
+
+    line = vc.get('line')
+    if line is None:
+        cv2.putText(out, "Belum ada garis IN/OUT", (14, 110),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (80, 80, 255), 2, cv2.LINE_AA)
+        meta['vc_in']  = in_cnt
+        meta['vc_out'] = out_cnt
+        return out, meta
+
+    # ── Convert normalized line to pixel coords ───────────────────
+    lx1 = int(line['x1'] * w); ly1 = int(line['y1'] * h)
+    lx2 = int(line['x2'] * w); ly2 = int(line['y2'] * h)
+
+    # Draw the counting line (orange, like reference screenshot)
+    cv2.line(out, (lx1, ly1), (lx2, ly2), (0, 140, 255), 3, cv2.LINE_AA)
+    cv2.circle(out, (lx1, ly1), 5, (0, 200, 255), -1)
+    cv2.circle(out, (lx2, ly2), 5, (0, 200, 255), -1)
+    # Normal vector to determine IN/OUT side labels
+    dx = lx2 - lx1; dy = ly2 - ly1
+    length = max(1, (dx*dx + dy*dy)**0.5)
+    nx, ny = -dy/length, dx/length   # left-hand normal = 'IN' side
+    mx, my = (lx1+lx2)//2, (ly1+ly2)//2
+    cv2.putText(out, 'IN',  (int(mx + nx*30 - 12), int(my + ny*30 + 6)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 80), 2, cv2.LINE_AA)
+    cv2.putText(out, 'OUT', (int(mx - nx*45 - 12), int(my - ny*45 + 6)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 80, 230), 2, cv2.LINE_AA)
+
+    # ── YOLO ByteTrack — persons only ────────────────────────────
+    tracked = []
+    if infer_fr is not None:
+        active_model = load_yolo_heavy()
+        if active_model is not None:
+            try:
+                with _yolo_lock:
+                    results = active_model.track(
+                        infer_fr, persist=True, tracker="bytetrack.yaml",
+                        classes=[0], conf=0.25, imgsz=320, verbose=False
+                    )
+                if results and results[0].boxes is not None:
+                    boxes = results[0].boxes
+                    for box in boxes:
+                        bx1, by1, bx2, by2 = map(int, box.xyxy[0].tolist())
+                        tid = int(box.id[0].item()) if box.id is not None else None
+                        conf = float(box.conf[0].item())
+                        if scale != 1.0:
+                            bx1=int(bx1/scale); by1=int(by1/scale)
+                            bx2=int(bx2/scale); by2=int(by2/scale)
+                        tracked.append((bx1, by1, bx2, by2, tid, conf))
+            except Exception as te:
+                print(f"[VC] track error: {te}", flush=True)
+
+    now_ts = time.time()
+    COOLDOWN_SEC = 1.5  # min seconds between two crossings for same track_id
+
+    for (x1, y1, x2, y2, tid, conf) in tracked:
+        # Draw bounding box
+        cx = (x1 + x2) // 2
+        cy = (y1 + y2) // 2
+        color = (0, 200, 255)
+        cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
+        tid_str = f"#{tid}" if tid is not None else "?"
+        xc_cnt = vc['cross_count'].get(tid, 0)
+        lbl = f"{tid_str} x{xc_cnt}" if xc_cnt > 0 else tid_str
+        cv2.putText(out, lbl, (x1, max(y1-6, 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+        cv2.circle(out, (cx, cy), 3, (255, 255, 0), -1)
+
+        if tid is None:
+            continue
+
+        prev = vc['prev_pos'].get(tid)
+        vc['prev_pos'][tid] = (cx, cy)
+
+        if prev is None:
+            continue
+
+        pcx, pcy = prev
+
+        # ── Crossing test ─────────────────────────────────────────
+        if not _segments_intersect((pcx, pcy), (cx, cy), (lx1, ly1), (lx2, ly2)):
+            continue
+
+        # Cooldown guard
+        last_cross = vc['cooldown'].get(tid, 0.0)
+        if now_ts - last_cross < COOLDOWN_SEC:
+            continue
+        vc['cooldown'][tid] = now_ts
+
+        # Direction: dot product of motion vector with left-hand normal
+        mv_x = cx - pcx; mv_y = cy - pcy
+        dot = mv_x * nx + mv_y * ny
+        direction = 'in' if dot > 0 else 'out'
+
+        # Increment counter
+        vc['counts'][direction] += 1
+        vc['cross_count'][tid] = vc['cross_count'].get(tid, 0) + 1
+        cross_idx = vc['cross_count'][tid]
+
+        ts_str = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Crop bbox for snapshot (clamp to frame)
+        pad = 20
+        sx1 = max(0, x1 - pad); sy1 = max(0, y1 - pad)
+        sx2 = min(w, x2 + pad); sy2 = min(h, y2 + pad)
+        crop = out[sy1:sy2, sx1:sx2].copy()
+
+        # Snapshot path
+        date_str = time.strftime("%Y%m%d")
+        snap_dir  = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "snapshots", "vc", f"cam_{cam_id}", date_str)
+        snap_name = f"vc_{cam_id}_{ts_str.replace(' ','_').replace(':','')}_{tid}_{direction}.jpg"
+        snap_path = os.path.join(snap_dir, snap_name)
+        # Relative path served via /snapshots static mount
+        snap_rel  = f"/snapshots/vc/cam_{cam_id}/{date_str}/{snap_name}"
+
+        # Non-blocking: save snapshot + DB write in daemon threads
+        t_snap = threading.Thread(target=_vc_save_snapshot_async,
+                                  args=(cam_id, crop, snap_path), daemon=True)
+        t_snap.start()
+        t_db   = threading.Thread(target=_vc_log_async,
+                                  args=(cam_id, tid, direction, ts_str, snap_rel, cross_idx),
+                                  daemon=True)
+        t_db.start()
+
+        # SSE broadcast
+        event = {
+            'type': 'crossing',
+            'cam_id': cam_id,
+            'track_id': tid,
+            'direction': direction,
+            'in_count': vc['counts']['in'],
+            'out_count': vc['counts']['out'],
+            'crossing_count': cross_idx,
+            'snapshot_path': snap_rel,
+            'timestamp': ts_str,
+        }
+        _vc_broadcast(cam_id, event)
+
+        # Flash border on frame
+        bcolor = (0, 220, 80) if direction == 'in' else (0, 60, 220)
+        cv2.rectangle(out, (0, 0), (w-1, h-1), bcolor, 6)
+        print(f"[VC] cam_{cam_id} tid={tid} {direction.upper()} cross#{cross_idx}  "
+              f"IN={vc['counts']['in']} OUT={vc['counts']['out']}", flush=True)
+
+    meta['vc_in']  = vc['counts']['in']
+    meta['vc_out'] = vc['counts']['out']
+    meta['vc_line'] = line
+    return out, meta
+
+
 def process_drowsiness(cam_id, frame, state, meta):
     h, w = frame.shape[:2]
     out = frame
@@ -1232,7 +1522,9 @@ MODE_MAPPING = {
     "Deteksi Kantuk (EAR)": "drowsiness",
     "drowsiness": "drowsiness",
     "Pose Estimation & Human Tracking": "pose",
-    "pose": "pose"
+    "pose": "pose",
+    "Visitor Counting (Hitung Orang)": "visitor_counting",
+    "visitor_counting": "visitor_counting",
 }
 
 def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
@@ -1276,7 +1568,8 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
 
     # Stride interval for non-continuous modes (in seconds)
     MODE_AI_INTERVALS = {
-        "face": 0.08, "vehicle": 0.08, "pose": 0.08, "attribute": 0.12, "drowsiness": 0.03
+        "face": 0.08, "vehicle": 0.08, "pose": 0.08, "attribute": 0.12, "drowsiness": 0.03,
+        "visitor_counting": 0.0,  # run every frame — crossing must not be missed
     }
     AI_INTERVAL = MODE_AI_INTERVALS.get(mode, 0.05)
     last_infer = state.get("last_inference_time", 0.0)
@@ -1299,6 +1592,10 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
         act_model_name = "YuNet + SFace"
         act_backend = "OpenCV DNN (CPU)"
     elif mode in ['attribute', 'vehicle']:
+        load_yolo_heavy()
+        act_model_name = yolo_model_heavy_name_str
+        act_backend = yolo_model_heavy_backend
+    elif mode == 'visitor_counting':
         load_yolo_heavy()
         act_model_name = yolo_model_heavy_name_str
         act_backend = yolo_model_heavy_backend
@@ -1328,6 +1625,9 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
                 processed, meta = process_attribute(frame, state.get("last_persons_raw", []), state.get("last_detections", []), state.get("last_bags_raw", []), last_meta, cached_colors=last_meta.get("cached_colors"))
             elif mode == 'vehicle':
                 processed, meta = process_vehicle_tracking(frame, None, 1.0, state, last_meta, cached_data=last_meta.get("tracked_objects"))
+            elif mode == 'visitor_counting':
+                # visitor_counting always re-runs (interval=0.0) but if somehow cached, redraw overlay only
+                processed, meta = process_visitor_counting(cam_id, frame, None, 1.0, state, last_meta)
             elif mode == 'pose':
                 processed, meta = process_pose(frame, None, 1.0, last_meta, cached_pose_data=last_meta.get("pose_data"))
             elif mode == 'zone_monitor':
@@ -1421,6 +1721,8 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
             processed, meta = process_attribute(frame, persons_raw, detections, bags_raw, meta)
         elif mode == 'vehicle':
             processed, meta = process_vehicle_tracking(frame, infer_fr, scale, state, meta)
+        elif mode == 'visitor_counting':
+            processed, meta = process_visitor_counting(cam_id, frame, infer_fr, scale, state, meta)
         elif mode == 'drowsiness':
             processed, meta = process_drowsiness(cam_id, frame, state, meta)
         elif mode == 'pose':
@@ -1500,6 +1802,8 @@ def run_analytics(cam_id, frame, mode_raw, selected_classes, state):
             for (x1, y1, x2, y2, cls, conf, _track_id) in meta.get("tracked_objects", [])
             if cls == 0  # cls 0 = person (COCO)
         ]
+    elif mode == 'visitor_counting':
+        meta["detections_raw"] = []  # VC handles its own detection internally
     elif mode == 'pose':
         # Pose mode: ambil bbox dari pose_data
         meta["detections_raw"] = [
