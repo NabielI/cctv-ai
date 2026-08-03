@@ -5074,7 +5074,9 @@ window.addEventListener('DOMContentLoaded',()=>{
         });
       }
     }
-    vcCamId = parseInt(document.getElementById('vc-cam-select').value) || 0;
+    const sel = document.getElementById('vc-cam-select');
+    if (sel && sel.value !== '') vcCamId = parseInt(sel.value) || 0;
+    await vcEnableMode();
     vcStartStream();
     await vcLoadLine();
     await vcLoadStatus();
@@ -5087,6 +5089,16 @@ window.addEventListener('DOMContentLoaded',()=>{
       vcLoadHourly();
     }, 15000);
   };
+
+  async function vcEnableMode() {
+    try {
+      await fetch('/api/ai/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cam_id: vcCamId, mode: 'visitor_counting' })
+      });
+    } catch(e) {}
+  }
 
   // ── Camera select ──────────────────────────────────────────────────
   function vcBuildCameraSelect() {
@@ -5121,11 +5133,12 @@ window.addEventListener('DOMContentLoaded',()=>{
     }
   }
 
-  window.vcCameraChange = function() {
+  window.vcCameraChange = async function() {
     const newId = parseInt(document.getElementById('vc-cam-select').value) || 0;
     if (newId === vcCamId) return;
     vcCamId = newId;
-    vcStartStream(); vcLoadLine(); vcLoadStatus(); vcLoadHourly();
+    await vcEnableMode();
+    vcStartStream(); vcLoadLine(); vcLoadStatus(); vcLoadHourly(); vcLoadSnapshots();
   };
 
   window.vcDateChange = function() {
@@ -5136,8 +5149,9 @@ window.addEventListener('DOMContentLoaded',()=>{
   function vcStartStream() {
     const img = document.getElementById('vc-stream-img');
     if (!img) return;
-    img.src = `/api/stream/${vcCamId}?t=${Date.now()}`;
+    img.src = `/api/ai/stream?cam_id=${vcCamId}&t=${Date.now()}`;
   }
+
 
   window.vcRefresh = function() {
     vcStartStream(); vcLoadStatus(); vcLoadHourly();
