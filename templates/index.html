@@ -2676,11 +2676,25 @@ code, pre, .mono, .font-mono,
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
                 <div style="color:var(--text);font-weight:700;display:flex;align-items:center;gap:6px;">
                   <i data-lucide="edit-3" style="width:14px;height:14px;color:var(--accent);"></i>
-                  Atur Garis IN/OUT (Klik 2 Titik di Video)
+                  Atur Garis IN/OUT
                 </div>
                 <span id="vc-line-info" style="font-size:11px;color:var(--text-3);">Belum ada garis</span>
               </div>
-              <div id="vc-line-tip" style="color:var(--text-3);font-size:11px;margin-bottom:10px;background:var(--surface-2);padding:6px 10px;border-radius:6px;">Klik titik pertama di video untuk mulai menggambar...</div>
+              <!-- Legend -->
+              <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;padding:6px 10px;background:var(--surface-2);border-radius:6px;font-size:11px;">
+                <span style="width:18px;height:4px;background:#10B981;border-radius:2px;display:inline-block;"></span><span style="color:var(--text-2);">Sisi MASUK (IN)</span>
+                <span style="width:18px;height:4px;background:#EF4444;border-radius:2px;display:inline-block;margin-left:8px;"></span><span style="color:var(--text-2);">Sisi KELUAR (OUT)</span>
+              </div>
+              <div id="vc-line-tip" style="color:var(--text-3);font-size:11px;margin-bottom:10px;padding:6px 10px;border-radius:6px;border:1px dashed var(--border);">👆 Klik titik pertama di video untuk mulai menggambar garis...</div>
+              <!-- Save button (shown only when pending line ready) -->
+              <div id="vc-save-row" style="display:none;margin-bottom:8px;">
+                <button onclick="vcSavePendingLine()" style="width:100%;padding:9px;background:#10B981;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+                  💾 Simpan Garis IN/OUT
+                </button>
+                <button onclick="vcCancelPending()" style="width:100%;margin-top:5px;padding:7px;background:var(--surface-2);color:var(--text-3);border:1px solid var(--border);border-radius:8px;font-size:12px;cursor:pointer;">
+                  ✕ Batal
+                </button>
+              </div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <button class="btn" onclick="vcFlipLine()" style="font-size:11px;background:var(--surface-2);color:var(--text);border:1px solid var(--border);display:flex;align-items:center;gap:4px;">
                   🔄 Tukar Arah IN ↔ OUT
@@ -5223,19 +5237,44 @@ window.addEventListener('DOMContentLoaded',()=>{
     if (vcClickPt1) vcDrawOverlay();
   }
 
+  let vcPendingLine = null; // line drawn but not yet saved
+
   function vcCanvasClick(e) {
     if (vcViewTab !== 'line') return;
     const pt = vcNorm(e.clientX, e.clientY);
     if (!vcClickPt1) {
+      // First point
+      vcPendingLine = null;
+      document.getElementById('vc-save-row').style.display = 'none';
       vcClickPt1 = pt;
-      vcSetTip('Klik titik kedua untuk menyelesaikan garis…');
+      vcSetTip('Titik pertama dipilih! Klik titik kedua untuk menyelesaikan garis…');
       vcDrawOverlay();
     } else {
+      // Second point — show pending line + Save button
       const p1 = vcClickPt1; vcClickPt1 = null;
-      vcSetTip('Garis tersimpan! Klik titik pertama untuk garis baru.');
-      vcSubmitLine(p1.x, p1.y, pt.x, pt.y);
+      vcPendingLine = { x1: p1.x, y1: p1.y, x2: pt.x, y2: pt.y };
+      vcDrawOverlay();
+      vcSetTip('Garis siap! Klik "💾 Simpan Garis IN/OUT" untuk menyimpan ke server.');
+      document.getElementById('vc-save-row').style.display = 'block';
+      lucide.createIcons();
     }
   }
+
+  window.vcSavePendingLine = async function() {
+    if (!vcPendingLine) return;
+    const {x1, y1, x2, y2} = vcPendingLine;
+    vcPendingLine = null;
+    document.getElementById('vc-save-row').style.display = 'none';
+    await vcSubmitLine(x1, y1, x2, y2);
+  };
+
+  window.vcCancelPending = function() {
+    vcPendingLine = null;
+    vcClickPt1 = null;
+    document.getElementById('vc-save-row').style.display = 'none';
+    vcSetTip('Dibatalkan. Klik titik pertama di video untuk memulai ulang…');
+    vcDrawOverlay();
+  };
 
   function vcSetTip(msg) {
     const el = document.getElementById('vc-line-tip');
@@ -5244,90 +5283,113 @@ window.addEventListener('DOMContentLoaded',()=>{
     if (tip) { tip.textContent = msg; tip.style.opacity='1'; setTimeout(()=>tip.style.opacity='0', 2000); }
   }
 
+  function vcDrawLineOnCanvas(ctx, line, pending) {
+    const canvas = ctx.canvas;
+    const lx1 = line.x1 * canvas.width, ly1 = line.y1 * canvas.height;
+    const lx2 = line.x2 * canvas.width, ly2 = line.y2 * canvas.height;
+    const mx = (lx1 + lx2) / 2, my = (ly1 + ly2) / 2;
+    const dx = lx2 - lx1, dy = ly2 - ly1, len = Math.sqrt(dx*dx + dy*dy) || 1;
+    const nx = -dy/len, ny = dx/len;
+
+    ctx.save();
+
+    // ── Half-line GREEN (IN side: from midpoint toward lx1/ly1 direction)
+    //    Convention: left-hand-normal of (p1→p2) = IN side → draw first half as green
+    ctx.lineWidth = pending ? 3 : 4;
+    ctx.lineCap = 'round';
+
+    // Green half (p1 → midpoint)
+    ctx.shadowColor = '#10B981'; ctx.shadowBlur = pending ? 4 : 8;
+    ctx.strokeStyle = '#10B981';
+    ctx.beginPath(); ctx.moveTo(lx1, ly1); ctx.lineTo(mx, my); ctx.stroke();
+
+    // Red half (midpoint → p2)
+    ctx.shadowColor = '#EF4444'; ctx.shadowBlur = pending ? 4 : 8;
+    ctx.strokeStyle = '#EF4444';
+    ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(lx2, ly2); ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Endpoint dots
+    [['#10B981', lx1, ly1], ['#EF4444', lx2, ly2]].forEach(([col, cx, cy]) => {
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(cx, cy, pending ? 5 : 7, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(cx, cy, pending ? 5 : 7, 0, Math.PI*2); ctx.stroke();
+    });
+
+    if (!pending) {
+      // IN label badge (green side)
+      const inLabelX = (lx1 + mx) / 2 + nx * 22;
+      const inLabelY = (ly1 + my) / 2 + ny * 22;
+      ctx.fillStyle = 'rgba(16,185,129,0.92)';
+      const inW = 88, inH = 22;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(inLabelX - inW/2, inLabelY - inH/2, inW, inH, 11);
+      else ctx.rect(inLabelX - inW/2, inLabelY - inH/2, inW, inH);
+      ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Inter,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('▶ MASUK (IN)', inLabelX, inLabelY);
+
+      // OUT label badge (red side)
+      const outLabelX = (mx + lx2) / 2 - nx * 22;
+      const outLabelY = (my + ly2) / 2 - ny * 22;
+      ctx.fillStyle = 'rgba(239,68,68,0.92)';
+      const outW = 98, outH = 22;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(outLabelX - outW/2, outLabelY - outH/2, outW, outH, 11);
+      else ctx.rect(outLabelX - outW/2, outLabelY - outH/2, outW, outH);
+      ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Inter,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('◀ KELUAR (OUT)', outLabelX, outLabelY);
+
+      // Center midpoint dot (white)
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(mx, my, 4, 0, Math.PI*2); ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
   function vcDrawOverlay() {
     const canvas = document.getElementById('vc-canvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    // Draw committed line (orange with glow)
-    if (vcLine) {
-      const lx1=vcLine.x1*canvas.width, ly1=vcLine.y1*canvas.height;
-      const lx2=vcLine.x2*canvas.width, ly2=vcLine.y2*canvas.height;
+    // Draw committed (saved) line
+    if (vcLine && (vcLine.x1 !== 0 || vcLine.y1 !== 0 || vcLine.x2 !== 0 || vcLine.y2 !== 0)) {
+      vcDrawLineOnCanvas(ctx, vcLine, false);
+    }
+
+    // Draw pending (drawn but not saved yet) line
+    if (vcPendingLine) {
       ctx.save();
-      ctx.strokeStyle='#FF8C00'; ctx.lineWidth=3; ctx.shadowColor='#FF8C00'; ctx.shadowBlur=8;
-      ctx.beginPath(); ctx.moveTo(lx1,ly1); ctx.lineTo(lx2,ly2); ctx.stroke();
-      ctx.shadowBlur=0;
-
-      // Endpoint circles
-      ctx.fillStyle='#FF8C00';
-      ctx.beginPath(); ctx.arc(lx1,ly1,6,0,Math.PI*2); ctx.fill();
-      ctx.beginPath(); ctx.arc(lx2,ly2,6,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='#FFFFFF'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.arc(lx1,ly1,6,0,Math.PI*2); ctx.stroke();
-      ctx.beginPath(); ctx.arc(lx2,ly2,6,0,Math.PI*2); ctx.stroke();
-
-      // Normal vector to determine IN/OUT side labels
-      const mx=(lx1+lx2)/2, my=(ly1+ly2)/2;
-      const dx=lx2-lx1, dy=ly2-ly1, len=Math.sqrt(dx*dx+dy*dy)||1;
-      const nx=-dy/len, ny=dx/len;
-
-      // IN Arrow (Green)
-      const inX = mx + nx * 40, inY = my + ny * 40;
-      ctx.strokeStyle='#10B981'; ctx.lineWidth=2.5;
-      ctx.beginPath(); ctx.moveTo(mx,my); ctx.lineTo(inX,inY); ctx.stroke();
-      const inAngle = Math.atan2(ny, nx);
-      ctx.fillStyle='#10B981';
-      ctx.beginPath();
-      ctx.moveTo(inX, inY);
-      ctx.lineTo(inX - 10 * Math.cos(inAngle - Math.PI/6), inY - 10 * Math.sin(inAngle - Math.PI/6));
-      ctx.lineTo(inX - 10 * Math.cos(inAngle + Math.PI/6), inY - 10 * Math.sin(inAngle + Math.PI/6));
-      ctx.closePath(); ctx.fill();
-
-      // IN Badge
-      ctx.fillStyle='#10B981';
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(inX - 42, inY - 22, 84, 20, 10);
-      else ctx.rect(inX - 42, inY - 22, 84, 20);
-      ctx.fill();
-      ctx.fillStyle='#FFFFFF'; ctx.font='bold 10px Inter,sans-serif'; ctx.textAlign='center';
-      ctx.fillText('▲ MASUK (IN)', inX, inY - 8);
-
-      // OUT Arrow (Red)
-      const outX = mx - nx * 40, outY = my - ny * 40;
-      ctx.strokeStyle='#EF4444'; ctx.lineWidth=2.5;
-      ctx.beginPath(); ctx.moveTo(mx,my); ctx.lineTo(outX,outY); ctx.stroke();
-      const outAngle = Math.atan2(-ny, -nx);
-      ctx.fillStyle='#EF4444';
-      ctx.beginPath();
-      ctx.moveTo(outX, outY);
-      ctx.lineTo(outX - 10 * Math.cos(outAngle - Math.PI/6), outY - 10 * Math.sin(outAngle - Math.PI/6));
-      ctx.lineTo(outX - 10 * Math.cos(outAngle + Math.PI/6), outY - 10 * Math.sin(outAngle + Math.PI/6));
-      ctx.closePath(); ctx.fill();
-
-      // OUT Badge
-      ctx.fillStyle='#EF4444';
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(outX - 45, outY + 4, 90, 20, 10);
-      else ctx.rect(outX - 45, outY + 4, 90, 20);
-      ctx.fill();
-      ctx.fillStyle='#FFFFFF'; ctx.font='bold 10px Inter,sans-serif'; ctx.textAlign='center';
-      ctx.fillText('▼ KELUAR (OUT)', outX, outY + 18);
-
+      ctx.setLineDash([8, 4]);
+      vcDrawLineOnCanvas(ctx, vcPendingLine, true);
+      ctx.setLineDash([]);
       ctx.restore();
     }
 
     // Draw preview (first click point + hover line)
-    if (vcViewTab==='line' && vcClickPt1) {
-      const x1=vcClickPt1.x*canvas.width, y1=vcClickPt1.y*canvas.height;
-      ctx.save(); ctx.setLineDash([6,4]); ctx.strokeStyle='rgba(99,179,237,.85)'; ctx.lineWidth=2;
+    if (vcViewTab === 'line' && vcClickPt1) {
+      const x1 = vcClickPt1.x * canvas.width, y1 = vcClickPt1.y * canvas.height;
+      ctx.save();
       if (vcHoverPt) {
-        const x2=vcHoverPt.x*canvas.width, y2=vcHoverPt.y*canvas.height;
-        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        const x2 = vcHoverPt.x * canvas.width, y2 = vcHoverPt.y * canvas.height;
+        ctx.setLineDash([6,4]); ctx.lineWidth = 2;
+        // Preview with split color too
+        const pmx = (x1+x2)/2, pmy = (y1+y2)/2;
+        ctx.strokeStyle = 'rgba(16,185,129,0.7)';
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(pmx,pmy); ctx.stroke();
+        ctx.strokeStyle = 'rgba(239,68,68,0.7)';
+        ctx.beginPath(); ctx.moveTo(pmx,pmy); ctx.lineTo(x2,y2); ctx.stroke();
+        ctx.setLineDash([]);
       }
-      ctx.setLineDash([]);
-      ctx.fillStyle='#63B3ED';
-      ctx.beginPath(); ctx.arc(x1,y1,6,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#10B981';
+      ctx.beginPath(); ctx.arc(x1, y1, 7, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x1, y1, 7, 0, Math.PI*2); ctx.stroke();
       ctx.restore();
     }
   }
@@ -5360,17 +5422,23 @@ window.addEventListener('DOMContentLoaded',()=>{
   };
 
   window.vcClearLine = async function() {
+    if (!vcLine && !vcPendingLine) {
+      toast('Belum ada garis untuk dihapus', 'info');
+      return;
+    }
+    vcLine = null; vcPendingLine = null; vcClickPt1 = null;
+    document.getElementById('vc-save-row').style.display = 'none';
+    // Notify backend: set line to null by sending special flag
     try {
       await fetch(`/api/vc/${vcCamId}/line`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ x1: 0, y1: 0, x2: 0, y2: 0 })
+        body: JSON.stringify({ x1: -1, y1: -1, x2: -1, y2: -1 })
       });
     } catch(e) {}
-    vcLine = null; vcClickPt1 = null;
     vcDrawOverlay(); vcUpdateLineInfo();
-    vcSetTip('Garis dihapus. Klik titik pertama di video…');
-    toast('Garis IN/OUT berhasil dihapus', 'info');
+    vcSetTip('Garis dihapus. Klik titik pertama di video untuk gambar ulang…');
+    toast('Garis IN/OUT dihapus', 'info');
   };
 
 

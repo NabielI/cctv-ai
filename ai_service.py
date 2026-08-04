@@ -811,10 +811,20 @@ def _vc_state(cam_id: int) -> dict:
 
 @app.post("/api/vc/{cam_id}/line")
 def api_vc_set_line(cam_id: int, cfg: VcLineConfig):
-    """Set the IN/OUT counting line (normalized 0-1 coords)."""
+    """Set the IN/OUT counting line (normalized 0-1 coords).
+    Send x1=-1 to clear/delete the line."""
+    # Clear signal: x1 == -1
+    if cfg.x1 < 0 or cfg.y1 < 0:
+        _vc_state(cam_id)['line'] = None
+        return {'success': True, 'line': None}
+    # Ignore degenerate zero-coord lines
+    if cfg.x1 == 0 and cfg.y1 == 0 and cfg.x2 == 0 and cfg.y2 == 0:
+        _vc_state(cam_id)['line'] = None
+        return {'success': True, 'line': None}
     line = {'x1': cfg.x1, 'y1': cfg.y1, 'x2': cfg.x2, 'y2': cfg.y2}
     _vc_state(cam_id)['line'] = line
     return {'success': True, 'line': line}
+
 
 
 @app.get("/api/vc/{cam_id}/line")
